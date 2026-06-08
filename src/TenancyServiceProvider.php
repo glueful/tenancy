@@ -7,11 +7,13 @@ namespace Glueful\Extensions\Tenancy;
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Container\Definition\FactoryDefinition;
 use Glueful\Database\Connection;
+use Glueful\Database\Execution\QueryExecutor;
 use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
 use Glueful\Extensions\Tenancy\Models\Tenant;
+use Glueful\Extensions\Tenancy\Query\TenantQueryGuard;
 use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
 use Glueful\Extensions\Tenancy\Resolution\ResolverChain;
 use Glueful\Extensions\Tenancy\Resolution\ResolverFactory;
@@ -92,6 +94,14 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 
         // Install the primary-table auto-injection hook on the query builder.
         self::registerTableHook();
+
+        // Install the pre-execution safety net: the TenantQueryGuard catches raw/unscoped
+        // access to tenant-owned tables that the auto-injection hook never saw. Registered via
+        // the CHAINABLE interceptor seam so host/other interceptors still run. Gated on
+        // tenancy.enabled so disabling the extension fully disarms enforcement.
+        if (\config($context, 'tenancy.enabled', true) === true) {
+            QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
+        }
     }
 
     /**
