@@ -43,6 +43,11 @@ use Symfony\Component\Console\Input\InputOption;
  *       });
  *   }
  *
+ * addOption() is inherited by BaseCommand from Symfony's Command — Intelephense resolves a
+ * trait's @mixin only for members declared directly on the mixed class, so the inherited
+ * Console method needs an explicit @method tag (getContext() resolves via the @mixin).
+ *
+ * @method void addOption(string $name, ?string $shortcut = null, ?int $mode = null, string $description = '')
  * @mixin \Glueful\Console\BaseCommand
  * @phpstan-require-extends \Glueful\Console\BaseCommand
  */
