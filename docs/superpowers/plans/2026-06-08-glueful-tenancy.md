@@ -278,7 +278,7 @@ final class ServiceProviderTest extends \PHPUnit\Framework\TestCase
     TenantMiddleware::class => ['class' => TenantMiddleware::class, 'shared' => true, 'autowire' => true, 'alias' => ['tenant']],
     ```
     plus `TenantContext`, `TenantResolutionPipeline`, `TenantTableRegistry`, `Tenancy`, etc.
-  - **`register()`**: `mergeConfig('tenancy', …)`, `loadMigrationsFrom(__DIR__.'/../database/migrations', MigrationPriority::FOUNDATION)`, load routes if any.
+  - **`register()`**: `mergeConfig('tenancy', …)`, `loadMigrationsFrom(__DIR__.'/../migrations', MigrationPriority::FOUNDATION)`, load routes if any.
   - **`boot()`**: register the chainable `Connection::addTableHook(...)` + `QueryExecutor::addQueryInterceptor(...)` (Phase 5), populate `TenantTableRegistry` from config (Phase 5.1), and `discoverCommands(...)`. **Do not** register the alias here.
   - Keep a static `middlewareAliases(): array` returning `['tenant' => TenantMiddleware::class]` for **docs/tests only** — it must not be the registration path.
 
@@ -293,7 +293,7 @@ git add -A && git commit -m "feat: package skeleton, ServiceProvider, tenancy co
 ### Task 1.2: Migrations — `tenants` + `tenant_memberships`
 
 **Files:**
-- Create: `database/migrations/001_CreateTenantsTable.php`, `database/migrations/002_CreateTenantMembershipsTable.php`
+- Create: `migrations/001_CreateTenantsTable.php`, `migrations/002_CreateTenantMembershipsTable.php`
 - Test: `tests/Integration/MigrationsTest.php`
 
 - [ ] **Step 1: Write the failing test** — run both migrations on `:memory:` and assert columns/indexes exist; rollback cleanly.
@@ -319,7 +319,7 @@ public function test_migrations_create_tenants_and_memberships(): void
 - [ ] **Step 4: Run — PASS** (and verify `down()` rollback in the test). **Commit.**
 
 ```bash
-git add database/migrations tests/Integration/MigrationsTest.php
+git add migrations tests/Integration/MigrationsTest.php
 git commit -m "feat: tenants + tenant_memberships migrations (FOUNDATION)"
 ```
 

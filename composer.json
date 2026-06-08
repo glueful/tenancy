@@ -22,7 +22,7 @@
     "homepage": "https://github.com/glueful/tenancy",
     "autoload": {
         "psr-4": { "Glueful\\Extensions\\Tenancy\\": "src/" },
-        "classmap": ["database/migrations/"]
+        "classmap": ["migrations/"]
     },
     "autoload-dev": {
         "psr-4": { "Glueful\\Extensions\\Tenancy\\Tests\\": "tests/" }

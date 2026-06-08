@@ -184,7 +184,7 @@ return [
 glueful/tenancy
 ├── composer.json                       # extra.glueful.provider → TenancyServiceProvider
 ├── config/tenancy.php
-├── database/migrations/                        # one dir, registered once at FOUNDATION
+├── migrations/                        # one dir, registered once at FOUNDATION
 │   ├── 001_CreateTenantsTable.php              # filename order satisfies the
 │   └── 002_CreateTenantMembershipsTable.php    # tenant_uuid → tenants FK
 └── src/

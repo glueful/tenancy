@@ -72,7 +72,7 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 
         // Directory may not exist yet — loadMigrationsFrom no-ops if absent.
         $this->loadMigrationsFrom(
-            __DIR__ . '/../database/migrations',
+            __DIR__ . '/../migrations',
             MigrationPriority::FOUNDATION,
             'glueful/tenancy'
         );
