@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace Glueful\Extensions\Tenancy;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Container\Definition\FactoryDefinition;
 use Glueful\Database\Migrations\MigrationPriority;
+use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
+use Glueful\Extensions\Tenancy\Resolution\ResolverChain;
+use Glueful\Extensions\Tenancy\Resolution\ResolverFactory;
+use Glueful\Extensions\Tenancy\Resolution\TenantResolutionPipeline;
 use Glueful\Extensions\Tenancy\Strategy\RowLevelStrategy;
 use Glueful\Extensions\Tenancy\Strategy\TenancyStrategyInterface;
+use Psr\Container\ContainerInterface;
 
 final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 {
@@ -36,6 +42,26 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'shared' => true,
                 'autowire' => true,
                 'alias' => [TenancyStrategyInterface::class],
+            ],
+            // Bypass decider — plain, dependency-free collaborator the pipeline injects.
+            TenantAccess::class => [
+                'class' => TenantAccess::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            // The resolver chain's ORDER is config-driven (config('tenancy.resolvers')),
+            // so it must be built at runtime from the resolved context — hence a factory,
+            // not plain autowiring.
+            ResolverChain::class => new FactoryDefinition(
+                ResolverChain::class,
+                static fn(ContainerInterface $c): ResolverChain =>
+                    ResolverFactory::chain($c->get(ApplicationContext::class))
+            ),
+            // Autowired from ResolverChain (factory above) + TenantAccess.
+            TenantResolutionPipeline::class => [
+                'class' => TenantResolutionPipeline::class,
+                'shared' => true,
+                'autowire' => true,
             ],
         ];
     }
