@@ -7,6 +7,8 @@ namespace Glueful\Extensions\Tenancy;
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
+use Glueful\Extensions\Tenancy\Strategy\RowLevelStrategy;
+use Glueful\Extensions\Tenancy\Strategy\TenancyStrategyInterface;
 
 final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 {
@@ -28,6 +30,12 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'shared' => true,
                 'autowire' => true,
                 'alias' => ['tenant'],
+            ],
+            RowLevelStrategy::class => [
+                'class' => RowLevelStrategy::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => [TenancyStrategyInterface::class],
             ],
         ];
     }
