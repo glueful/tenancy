@@ -35,12 +35,13 @@ tables. If your app uses an explicit extension allow-list, enable it there:
 php glueful extensions:enable Tenancy
 ```
 
-**Framework requirement:** `glueful/framework ^1.52.0`. The extension relies on framework seams shipped
-in **1.52.0** — the chainable `Connection::addTableHook()` / `QueryExecutor::addQueryInterceptor()`
+**Framework requirement:** `glueful/framework ^1.53.0`. The extension relies on framework seams shipped
+in **1.53.0** — the chainable `Connection::addTableHook()` / `QueryExecutor::addQueryInterceptor()`
 seams (so the tenancy hooks compose with host interceptors instead of replacing them) and the
-qualified-column write fix in the UPDATE/DELETE validator (which is why the tenant predicate is written
-**unqualified**, see [Automatic scoping](#automatic-scoping)). Earlier framework versions do not expose
-these and are not supported.
+`Connection::class` container binding (the `tenant:*` commands resolve the database via `db()`). The
+tenant predicate is written **unqualified** (see [Automatic scoping](#automatic-scoping)) so it works on
+the framework's UPDATE/DELETE path **without** depending on the qualified-column validator fix. Earlier
+framework versions do not expose these seams and are not supported.
 
 ## The data model
 
