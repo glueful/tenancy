@@ -6,6 +6,8 @@ namespace Glueful\Extensions\Tenancy\Models;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\ORM\Builder;
+use Glueful\Database\ORM\Concerns\SoftDeletes;
+use Glueful\Database\ORM\Contracts\SoftDeletable;
 use Glueful\Database\ORM\Model;
 
 /**
@@ -19,6 +21,13 @@ use Glueful\Database\ORM\Model;
  * key with a separate, unique 12-char `uuid` used as the stable public principal id, plus
  * a unique `slug`, a `status` ('active' by default) and a nullable JSON `settings` blob.
  *
+ * SOFT DELETES: the table carries a `deleted_at` column and this model uses the framework's
+ * {@see SoftDeletes} trait, so soft-deleted tenants are excluded from queries by default and
+ * therefore cannot resolve through the pipeline (they 404, indistinguishable from unknown).
+ * The underlying core query builder already filters `deleted_at IS NULL` for any table with
+ * the column, so this trait makes the model's intent explicit and grants proper soft-delete
+ * semantics (delete()/restore()/trashed()/withTrashed()) at the ORM layer.
+ *
  * @property int         $id
  * @property string      $uuid
  * @property string      $slug
@@ -26,8 +35,10 @@ use Glueful\Database\ORM\Model;
  * @property string      $status
  * @property string|null $settings
  */
-class Tenant extends Model
+class Tenant extends Model implements SoftDeletable
 {
+    use SoftDeletes;
+
     protected string $table = 'tenants';
 
     protected string $primaryKey = 'id';

@@ -134,6 +134,37 @@ final class ResolutionPipelineTest extends TenancyTestCase
         $pipeline->resolve($this->requestForUser(Utils::generateNanoID(12)), $ctx, true);
     }
 
+    public function test_membership_in_a_different_tenant_does_not_grant_access(): void
+    {
+        $ctx = $this->appContext();
+        $tenantA = $this->makeActiveTenant('tenant-a');
+        $tenantB = $this->makeActiveTenant('tenant-b');
+        $userUuid = Utils::generateNanoID(12);
+
+        // Active membership in A only; request resolves B.
+        $this->makeMembership($tenantA->uuid, $userUuid, 'member', 'active');
+
+        $pipeline = new TenantResolutionPipeline($this->chainReturning('tenant-b'), $this->accessGranting(false));
+
+        $this->expectException(TenantAccessDeniedException::class);
+        $pipeline->resolve($this->requestForUser($userUuid), $ctx, true);
+    }
+
+    public function test_suspended_membership_in_resolved_tenant_does_not_grant_access(): void
+    {
+        $ctx = $this->appContext();
+        $tenant = $this->makeActiveTenant('acme');
+        $userUuid = Utils::generateNanoID(12);
+
+        // Membership exists for the correct tenant but is suspended, not active.
+        $this->makeMembership($tenant->uuid, $userUuid, 'member', 'suspended');
+
+        $pipeline = new TenantResolutionPipeline($this->chainReturning('acme'), $this->accessGranting(false));
+
+        $this->expectException(TenantAccessDeniedException::class);
+        $pipeline->resolve($this->requestForUser($userUuid), $ctx, true);
+    }
+
     public function test_authenticated_user_with_bypass_passes_without_membership(): void
     {
         $ctx = $this->appContext();
@@ -145,6 +176,22 @@ final class ResolutionPipelineTest extends TenancyTestCase
 
         $this->assertSame($tenant->uuid, $ctx->getRequestState('tenancy.tenant')->uuid);
         $this->assertSame('forAnyTenant', $ctx->getRequestState('tenancy.bypass'));
+    }
+
+    public function test_soft_deleted_tenant_does_not_resolve(): void
+    {
+        $ctx = $this->appContext();
+        $tenant = $this->makeActiveTenant('acme');
+
+        // Soft-delete the (still status=active) tenant directly in storage.
+        $this->connection()->table('tenants')
+            ->where('uuid', $tenant->uuid)
+            ->update(['deleted_at' => date('Y-m-d H:i:s')]);
+
+        $pipeline = new TenantResolutionPipeline($this->chainReturning('acme'), $this->accessGranting(false));
+
+        $this->expectException(TenantNotFoundException::class);
+        $pipeline->resolve($this->requestForUser(Utils::generateNanoID(12)), $ctx, true);
     }
 
     public function test_required_route_with_null_candidate_throws_not_found(): void
