@@ -102,6 +102,12 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
         if (\config($context, 'tenancy.enabled', true) === true) {
             QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
         }
+
+        // Auto-discover the tenant:* console commands (each carries #[AsCommand]).
+        $this->discoverCommands(
+            'Glueful\\Extensions\\Tenancy\\Console',
+            __DIR__ . '/Console'
+        );
     }
 
     /**
