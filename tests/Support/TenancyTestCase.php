@@ -50,7 +50,10 @@ abstract class TenancyTestCase extends TestCase
 
             public function get(string $id): mixed
             {
-                if ($id === 'database') {
+                // 'database' is what Model::getConnection() resolves; Connection::class is
+                // what the db()/app() helpers resolve — both map to the one harness
+                // connection so the process-global table hook fires on the same DB.
+                if ($id === 'database' || $id === Connection::class) {
                     return $this->connection;
                 }
                 throw new \RuntimeException("Unknown service: {$id}");
@@ -58,7 +61,7 @@ abstract class TenancyTestCase extends TestCase
 
             public function has(string $id): bool
             {
-                return $id === 'database';
+                return $id === 'database' || $id === Connection::class;
             }
         };
 

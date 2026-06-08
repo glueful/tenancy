@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Glueful\Extensions\Tenancy\Http;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Exceptions\TenantAccessDeniedException;
 use Glueful\Extensions\Tenancy\Exceptions\TenantNotFoundException;
@@ -46,6 +47,10 @@ final class TenantMiddleware implements RouteMiddleware
     {
         $required = !in_array('optional', $params, true);
 
+        // Point the process-level holder at this request's context so DB-layer hooks
+        // (auto-injection / the query guard) can read request-scoped tenancy state.
+        CurrentContext::set($this->context);
+
         try {
             $this->pipeline->resolve($request, $this->context, $required);
 
@@ -62,6 +67,7 @@ final class TenantMiddleware implements RouteMiddleware
         } finally {
             // Win or lose, never leak tenancy request-state past this request.
             (new TenantContext($this->context))->clear();
+            CurrentContext::clear();
         }
     }
 }

@@ -6,9 +6,13 @@ namespace Glueful\Extensions\Tenancy;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Container\Definition\FactoryDefinition;
+use Glueful\Database\Connection;
 use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
+use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
+use Glueful\Extensions\Tenancy\Models\Tenant;
+use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
 use Glueful\Extensions\Tenancy\Resolution\ResolverChain;
 use Glueful\Extensions\Tenancy\Resolution\ResolverFactory;
 use Glueful\Extensions\Tenancy\Resolution\TenantResolutionPipeline;
@@ -80,7 +84,54 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 
     public function boot(ApplicationContext $context): void
     {
-        // Minimal for now — no commands yet.
+        // The config `tenancy.tables` list is the AUTHORITATIVE registry of tenant-owned
+        // tables. Populate it at boot — before any request runs a query — so raw-query
+        // auto-injection protects those tables regardless of model boot order. The
+        // BelongsToTenant trait still registers as a backstop.
+        TenantTableRegistry::loadFromConfig($context);
+
+        // Install the primary-table auto-injection hook on the query builder.
+        self::registerTableHook();
+    }
+
+    /**
+     * Register the process-level Connection table hook that auto-injects the current
+     * tenant's `tenant_uuid` predicate into every query against a tenant-owned table.
+     *
+     * The hook receives only ($qb, $table, $conn) — no ApplicationContext — so it reaches
+     * the current request's context (and thus the active tenant) through the
+     * {@see CurrentContext} holder. It is intentionally conservative: it adds a predicate
+     * ONLY when there is a current context, no explicit bypass, and a concrete current
+     * tenant. The "no tenant / fail-closed" decision is left to the ORM scope and the
+     * Phase-6 query guard — this hook never blocks a query, it only narrows it.
+     *
+     * Registered via the CHAINABLE addTableHook() so host/other-extension hooks still run.
+     */
+    public static function registerTableHook(): void
+    {
+        Connection::addTableHook(static function ($qb, string $table, $conn): void {
+            if (!TenantTableRegistry::isTenantOwned($table)) {
+                return;
+            }
+
+            $ctx = CurrentContext::get();
+            if ($ctx === null) {
+                return;
+            }
+
+            // Explicit bypass (runAsSystem / runAsTenant / forAnyTenant): no predicate.
+            if ($ctx->getRequestState('tenancy.bypass') !== null) {
+                return;
+            }
+
+            // No current tenant: leave the query untouched for the guard/ORM to decide.
+            $tenant = $ctx->getRequestState('tenancy.tenant');
+            if (!$tenant instanceof Tenant) {
+                return;
+            }
+
+            $qb->where($table . '.tenant_uuid', $tenant->uuid);
+        });
     }
 
     /**
