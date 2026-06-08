@@ -76,10 +76,16 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
     {
         $this->mergeConfig('tenancy', require __DIR__ . '/../config/tenancy.php');
 
+        // Run AFTER the identity store (IDENTITY = -100) but BEFORE app/feature
+        // migrations (DEFAULT = 0), so `tenants` exists before any app tenant-owned
+        // table that FKs to `tenants.uuid`. NOT FOUNDATION (-200) — that tier is
+        // reserved for framework core; and NOT DEPENDENT (100) — that runs after the
+        // app, which would create `tenants` too late. A raw int between the tiers is
+        // the framework-sanctioned way to order an extension's infrastructure here.
         // Directory may not exist yet — loadMigrationsFrom no-ops if absent.
         $this->loadMigrationsFrom(
             __DIR__ . '/../migrations',
-            MigrationPriority::FOUNDATION,
+            MigrationPriority::DEFAULT - 50,
             'glueful/tenancy'
         );
     }

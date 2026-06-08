@@ -8,13 +8,16 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "require": {
-        "php": "^8.3",
-        "glueful/framework": "^1.53.0"
+        "php": "^8.3"
     },
     "require-dev": {
+        "glueful/framework": "^1.53.0",
         "phpunit/phpunit": "^10.5",
         "squizlabs/php_codesniffer": "^3.6",
         "phpstan/phpstan": "^1.0"
+    },
+    "suggest": {
+        "glueful/aegis": "RBAC provider that can govern cross-tenant bypass — grant a role the configured bypass permission (tenancy.access_any / tenancy.manage) to unlock Tenancy::forAnyTenant()."
     },
     "homepage": "https://github.com/glueful/tenancy",
     "autoload": {
@@ -28,7 +31,7 @@
         "test": "vendor/bin/phpunit",
         "phpcs": "vendor/bin/phpcs --standard=PSR12 src",
         "phpcbf": "vendor/bin/phpcbf --standard=PSR12 src",
-        "analyze": "vendor/bin/phpstan analyse"
+        "analyze": "vendor/bin/phpstan analyse src"
     },
     "extra": {
         "glueful": {

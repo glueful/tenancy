@@ -28,7 +28,7 @@ composer require glueful/tenancy
 php glueful migrate:run
 ```
 
-`migrate:run` applies the two FOUNDATION migrations that create the `tenants` and `tenant_memberships`
+`migrate:run` applies the two migrations that create the `tenants` and `tenant_memberships`
 tables. If your app uses an explicit extension allow-list, enable it there:
 
 ```bash
