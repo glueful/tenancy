@@ -41,6 +41,18 @@ use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
  *
  * The active tenant + bypass mode are always read from the model's OWN context
  * (request-scoped state), consistent with {@see TenantScope}.
+ *
+ * This trait is only valid on a {@see Model} subclass — it calls Model/concern
+ * methods (addGlobalScope, getTable, creating, updating) on the host class. The
+ * method-tag annotations below let static analysis resolve those host members
+ * from inside the trait's static boot context (Intelephense does not apply a
+ * mixin annotation to static:: / new static() calls within a trait).
+ *
+ * @method static void addGlobalScope(\Glueful\Database\ORM\Contracts\Scope $scope)
+ * @method static void creating(callable $callback)
+ * @method static void updating(callable $callback)
+ * @method string getTable()
+ * @phpstan-require-extends Model
  */
 trait BelongsToTenant
 {

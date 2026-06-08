@@ -43,6 +43,7 @@ use Symfony\Component\Console\Input\InputOption;
  *       });
  *   }
  *
+ * @mixin \Glueful\Console\BaseCommand
  * @phpstan-require-extends \Glueful\Console\BaseCommand
  */
 trait RunsInTenantContext

@@ -45,6 +45,7 @@ use Glueful\Extensions\Tenancy\Models\Tenant;
  * so {@see runInTenantContext()} resets tenant state in a finally — that is what isolates one
  * job from the next on the reused context.
  *
+ * @mixin \Glueful\Queue\Job
  * @phpstan-require-extends \Glueful\Queue\Job
  */
 trait PropagatesTenant
