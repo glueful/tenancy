@@ -264,11 +264,16 @@ Tenancy::forAnyTenant(function () {
 | `forAnyTenant(callable $fn, bool $requirePermission = true, ?TenantAccess $access = null)` | cross-tenant read |
 | `registerTable(string $table)` | register a table as tenant-owned (delegates to the registry) |
 
-**`forAnyTenant` is permission-gated on request paths.** By default it asks the framework authorization
-`Gate` whether the current user holds any of `config('tenancy.bypass_permissions')` (default
-`tenancy.access_any`, `tenancy.manage`) and throws `TenantAccessDeniedException` if not — failing closed
-when the Gate cannot be evaluated. Trusted CLI / system callers pass `$requirePermission = false` to skip
-the check.
+**`forAnyTenant` is permission-gated on request paths.** By default it checks whether the current user
+holds any of `config('tenancy.bypass_permissions')` (default `tenancy.access_any`, `tenancy.manage`) and
+throws `TenantAccessDeniedException` if not — failing closed when authorization cannot be evaluated.
+Trusted CLI / system callers pass `$requirePermission = false` to skip the check.
+
+The check honors your app's **active permission provider** first (`PermissionManager::can()` — the same
+authority the rest of the app uses), then falls back to the framework `Gate`'s voters when no provider is
+active. So an RBAC extension like **`glueful/aegis`** governs bypass directly: grant a role
+`tenancy.access_any` / `tenancy.manage` in aegis and it unlocks cross-tenant access. With no provider
+installed, a configured `super_roles` user (or a `config/permissions.php` policy) grants it via the Gate.
 
 ## Context propagation
 
