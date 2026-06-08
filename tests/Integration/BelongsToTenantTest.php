@@ -8,6 +8,7 @@ use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Exceptions\MissingTenantContextException;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
+use Glueful\Extensions\Tenancy\Tests\Support\FillableProject;
 use Glueful\Extensions\Tenancy\Tests\Support\Project;
 use Glueful\Extensions\Tenancy\Tests\Support\TenancyTestCase;
 use Glueful\Helpers\Utils;
@@ -29,6 +30,16 @@ final class BelongsToTenantTest extends TenancyTestCase
 
         // Tenant-owned fixture table.
         $this->connection()->getSchemaBuilder()->createTable('projects', function ($table) {
+            $table->bigInteger('id')->primary()->autoIncrement();
+            $table->string('uuid', 12);
+            $table->string('tenant_uuid', 12);
+            $table->string('name', 255);
+
+            $table->index('tenant_uuid');
+        });
+
+        // Same shape as `projects`, but its model lists tenant_uuid in $fillable.
+        $this->connection()->getSchemaBuilder()->createTable('fillable_projects', function ($table) {
             $table->bigInteger('id')->primary()->autoIncrement();
             $table->string('uuid', 12);
             $table->string('tenant_uuid', 12);
@@ -91,6 +102,53 @@ final class BelongsToTenantTest extends TenancyTestCase
         // Persisted with the right tenant.
         $row = $this->connection()->table('projects')->where('id', $project->id)->first();
         self::assertSame($this->tenantA->uuid, $row['tenant_uuid']);
+    }
+
+    /**
+     * Security regression: a caller-supplied `tenant_uuid` must NEVER override the
+     * active tenant on create, even when the consumer model exposes `tenant_uuid`
+     * to mass assignment ($fillable). Acting in tenant A, an attacker payload
+     * carrying tenant B's uuid must be force-overwritten to A — not planted in B.
+     */
+    public function testCreateForcesTenantUuidEvenWhenSuppliedAndFillable(): void
+    {
+        $this->tenancy()->setTenant($this->tenantA);
+        $ctx = $this->appContext();
+
+        $project = FillableProject::create($ctx, [
+            'uuid' => Utils::generateNanoID(12),
+            'tenant_uuid' => $this->tenantB->uuid, // attacker-supplied victim tenant
+            'name' => 'planted',
+        ]);
+
+        // In-memory model reflects the forced tenant.
+        self::assertSame($this->tenantA->uuid, $project->tenant_uuid);
+
+        // Persisted row belongs to A, NOT the supplied B.
+        $row = $this->connection()->table('fillable_projects')->where('id', $project->id)->first();
+        self::assertSame($this->tenantA->uuid, $row['tenant_uuid']);
+        self::assertNotSame($this->tenantB->uuid, $row['tenant_uuid']);
+    }
+
+    /**
+     * Under an explicit bypass mode (privileged forAnyTenant/runAsSystem code), a
+     * caller-supplied `tenant_uuid` IS honored — privileged callers control it.
+     */
+    public function testExplicitBypassHonorsSuppliedTenantUuid(): void
+    {
+        $this->tenancy()->setBypass('forAnyTenant');
+        $ctx = $this->appContext();
+
+        $project = FillableProject::create($ctx, [
+            'uuid' => Utils::generateNanoID(12),
+            'tenant_uuid' => $this->tenantB->uuid,
+            'name' => 'privileged-cross-tenant',
+        ]);
+
+        self::assertSame($this->tenantB->uuid, $project->tenant_uuid);
+
+        $row = $this->connection()->table('fillable_projects')->where('id', $project->id)->first();
+        self::assertSame($this->tenantB->uuid, $row['tenant_uuid']);
     }
 
     public function testCreateWithoutTenantThrows(): void

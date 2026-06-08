@@ -16,9 +16,28 @@ use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
  * On boot the trait:
  *  - registers the {@see TenantScope} global scope (scoped reads + fail-closed reads),
  *  - records the model's table in the {@see TenantTableRegistry},
- *  - registers a `creating` hook that stamps `tenant_uuid` from the active tenant
+ *  - registers a `creating` hook that FORCE-SETS `tenant_uuid` from the active tenant
  *    (failing closed when there is no tenant and no bypass),
  *  - registers an `updating` hook that rejects any change to `tenant_uuid` (immutable).
+ *
+ * Security — `tenant_uuid` is force-set on create via {@see Model::setAttribute()},
+ * which bypasses `$fillable`. The stamped value UNCONDITIONALLY overwrites any
+ * caller-supplied `tenant_uuid` (e.g. from a mass-assigned request body), so a
+ * consumer model can NEVER plant a row in another tenant even if it lists
+ * `tenant_uuid` in `$fillable` or is `$unguarded`. Consumer models therefore do
+ * NOT need `tenant_uuid` in `$fillable` for security; reads hydrate it from raw
+ * attributes regardless of mass-assignment config. The only carve-out is an
+ * explicit bypass mode (runAsSystem/runAsTenant/forAnyTenant), under which a
+ * supplied value is honored because the caller is already privileged.
+ *
+ * Raw-write gap — the `updating` immutability guard runs on MODEL events only
+ * (save()/update()/forceFill()->save()). A raw query-builder write such as
+ * `db()->table('x')->update(['tenant_uuid' => ...])` or
+ * `Model::query($ctx)->where(...)->update([...])` bypasses model events entirely,
+ * so it is NOT covered by this guard. The tenant scope predicate still applies to
+ * such writes (you can only touch rows already visible to the current tenant — this
+ * is row-reassignment-out, not a foreign read), and the Phase-6 query guard plus
+ * always using models are the enforcement for raw paths.
  *
  * The active tenant + bypass mode are always read from the model's OWN context
  * (request-scoped state), consistent with {@see TenantScope}.
@@ -35,25 +54,29 @@ trait BelongsToTenant
         TenantTableRegistry::register((new static())->getTable());
 
         static::creating(static function (Model $model): void {
+            // Privileged carve-out: under an explicit bypass mode (runAsSystem /
+            // runAsTenant / forAnyTenant) the caller controls tenant_uuid — leave
+            // any supplied value untouched.
+            if (self::tenantBypassed($model)) {
+                return;
+            }
+
+            // Normal path: resolve the active tenant or fail closed.
             $current = self::resolveCurrentTenant($model);
 
-            $existing = $model->getAttribute(TenantScope::COLUMN);
-
-            if ($existing === null || $existing === '') {
-                if ($current === null) {
-                    if (self::tenantBypassed($model)) {
-                        return;
-                    }
-
-                    throw new MissingTenantContextException(sprintf(
-                        'Cannot create [%s]: no active tenant context to stamp %s.',
-                        $model::class,
-                        TenantScope::COLUMN
-                    ));
-                }
-
-                $model->setAttribute(TenantScope::COLUMN, $current->uuid);
+            if ($current === null) {
+                throw new MissingTenantContextException(sprintf(
+                    'Cannot create [%s]: no active tenant context to stamp %s.',
+                    $model::class,
+                    TenantScope::COLUMN
+                ));
             }
+
+            // FORCE the active tenant, overwriting any caller-supplied value.
+            // setAttribute bypasses $fillable, so this holds regardless of the
+            // consumer model's mass-assignment config — security must not depend
+            // on the consumer keeping tenant_uuid out of $fillable.
+            $model->setAttribute(TenantScope::COLUMN, $current->uuid);
         });
 
         static::updating(static function (Model $model): void {
@@ -65,17 +88,6 @@ trait BelongsToTenant
                 ));
             }
         });
-    }
-
-    /**
-     * Initialize the trait for an instance: ensure tenant_uuid is mass-assignable so
-     * stamping/hydration round-trips cleanly (mirrors initializeSoftDeletes()).
-     */
-    public function initializeBelongsToTenant(): void
-    {
-        if (!in_array(TenantScope::COLUMN, $this->fillable, true)) {
-            $this->fillable[] = TenantScope::COLUMN;
-        }
     }
 
     /**
