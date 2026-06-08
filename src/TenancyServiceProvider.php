@@ -146,7 +146,11 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 return;
             }
 
-            $qb->where($table . '.tenant_uuid', $tenant->uuid);
+            // Unqualified column (not `{$table}.tenant_uuid`): a table-qualified predicate
+            // trips the framework's UPDATE/DELETE column validator on same-tenant raw writes
+            // (it re-validates already-wrapped identifiers). Unqualified scopes reads and
+            // writes uniformly. See TenantScope's docblock for the full rationale.
+            $qb->where('tenant_uuid', $tenant->uuid);
         });
     }
 

@@ -197,29 +197,16 @@ final class CrossTenantIsolationTest extends TenancyTestCase
 
     /**
      * A scoped UPDATE targeting B's row while acting as A must never modify it. The
-     * TenantScope ANDs in `projects.tenant_uuid = A`, so B's row is unreachable.
-     *
-     * NOTE — core quirk, NOT an isolation hole: the framework's UPDATE/DELETE column
-     * validator currently rejects the TABLE-QUALIFIED predicate the scope injects
-     * (`projects.tenant_uuid`), throwing InvalidArgumentException before the statement
-     * runs (reproduced: a bare-column predicate returns 0 rows cleanly; only the
-     * qualified form trips it). That is strictly MORE fail-closed than "0 rows" — the
-     * cross-tenant write cannot execute at all. We assert the real security invariant:
-     * regardless of whether the scoped write returns 0 or throws, B's row is INTACT.
+     * TenantScope ANDs in `tenant_uuid = A`, so B's row is outside the scope and the
+     * statement affects exactly 0 rows (it executes cleanly — no exception).
      */
     public function testScopedUpdateCannotTouchOtherTenantRow(): void
     {
         $this->actAsTenantA();
         $ctx = $this->appContext();
 
-        $touched = false;
-        try {
-            $affected = Project::query($ctx)->where('uuid', $this->bUuid)->update(['name' => 'hijacked']);
-            $touched = $affected > 0;
-        } catch (\InvalidArgumentException $e) {
-            // Fail-closed: the scoped cross-tenant write never executes (core qualified-column quirk).
-        }
-        self::assertFalse($touched, 'a scoped update must never modify another tenant\'s row');
+        $affected = Project::query($ctx)->where('uuid', $this->bUuid)->update(['name' => 'hijacked']);
+        self::assertSame(0, $affected, 'a scoped update must affect 0 of another tenant\'s rows');
 
         // MECHANISM PROOF: B's row still exists and is untouched (reachable under bypass).
         $bId = $this->bProjectId;
@@ -231,28 +218,48 @@ final class CrossTenantIsolationTest extends TenancyTestCase
 
     /**
      * Sibling of the update case: a scoped DELETE targeting B's row while acting as A must
-     * never remove it. Same core qualified-column quirk applies (fail-closed); we assert
-     * the invariant — B's row survives.
+     * never remove it — it affects 0 rows. We assert the invariant: B's row survives.
      */
     public function testScopedDeleteCannotTouchOtherTenantRow(): void
     {
         $this->actAsTenantA();
         $ctx = $this->appContext();
 
-        $removed = false;
-        try {
-            $affected = Project::query($ctx)->where('uuid', $this->bUuid)->delete();
-            $removed = $affected > 0;
-        } catch (\InvalidArgumentException $e) {
-            // Fail-closed: the scoped cross-tenant delete never executes.
-        }
-        self::assertFalse($removed, 'a scoped delete must never remove another tenant\'s row');
+        $affected = Project::query($ctx)->where('uuid', $this->bUuid)->delete();
+        self::assertSame(0, $affected, 'a scoped delete must remove 0 of another tenant\'s rows');
 
         // MECHANISM PROOF: B's row survives — still reachable under bypass.
         $bId = $this->bProjectId;
         $bRow = Tenancy::runAsSystem(static fn () => Project::find($ctx, $bId));
         self::assertNotNull($bRow);
         self::assertSame($this->tenantB->uuid, $bRow->tenant_uuid);
+    }
+
+    /**
+     * Regression guard for the unqualified-column fix: a LEGITIMATE same-tenant bulk
+     * update() and delete() through the scoped builder must SUCCEED. (A table-qualified
+     * predicate used to throw on the framework's UPDATE/DELETE column validator, which
+     * would have broken the owning tenant's own bulk writes — not just cross-tenant ones.)
+     */
+    public function testSameTenantBulkUpdateAndDeleteSucceed(): void
+    {
+        $this->actAsTenantA();
+        $ctx = $this->appContext();
+
+        // Capture one of A's own rows.
+        $aRow = Project::query($ctx)->get()->first();
+        self::assertNotNull($aRow);
+        $aUuid = $aRow->uuid;
+
+        // Bulk UPDATE of A's own row succeeds and affects exactly 1 row.
+        $updated = Project::query($ctx)->where('uuid', $aUuid)->update(['name' => 'renamed-by-owner']);
+        self::assertSame(1, $updated, 'the owning tenant must be able to bulk-update its own rows');
+        self::assertSame('renamed-by-owner', Project::query($ctx)->where('uuid', $aUuid)->first()->name);
+
+        // Bulk DELETE of A's own row succeeds and removes exactly 1 row.
+        $deleted = Project::query($ctx)->where('uuid', $aUuid)->delete();
+        self::assertSame(1, $deleted, 'the owning tenant must be able to bulk-delete its own rows');
+        self::assertNull(Project::query($ctx)->where('uuid', $aUuid)->first());
     }
 
     // ---------------------------------------------------------------------------------

@@ -19,8 +19,17 @@ use Glueful\Extensions\Tenancy\Models\Tenant;
  *
  * Behaviour:
  *  - A bypass mode is active  → no predicate (query runs across all tenants).
- *  - A tenant is active       → `where {table}.tenant_uuid = {tenant.uuid}`.
+ *  - A tenant is active       → `where tenant_uuid = {tenant.uuid}`.
  *  - No tenant + tenant-required → THROW {@see MissingTenantContextException} (fail closed).
+ *
+ * The predicate uses the UNQUALIFIED column name (`tenant_uuid`, not
+ * `{table}.tenant_uuid`) on purpose: the framework's UPDATE/DELETE validator
+ * re-checks the already-wrapped WHERE-condition identifiers and rejects the
+ * driver's quote characters in a table-qualified column, which would make a
+ * legitimate same-tenant bulk update()/delete() throw. Unqualified scopes reads
+ * AND writes uniformly on the (single) tenant-owned table. The only thing given
+ * up is auto-disambiguation when a query explicitly JOINs two tenant tables that
+ * both carry `tenant_uuid` — qualify that case yourself or use withoutTenantScope().
  *
  * It also extends the builder with the noisy bypass macros `withoutTenantScope()` and
  * `forAnyTenant()`, each of which removes THIS scope so the query runs unscoped.
@@ -41,7 +50,9 @@ final class TenantScope implements Scope, ExtendsBuilder
 
         $tenant = $ctx?->getRequestState('tenancy.tenant');
         if ($tenant instanceof Tenant) {
-            $builder->where($model->getTable() . '.' . self::COLUMN, $tenant->uuid);
+            // Unqualified column — see the class docblock: a table-qualified predicate
+            // breaks the framework's UPDATE/DELETE column validator on same-tenant writes.
+            $builder->where(self::COLUMN, $tenant->uuid);
             return;
         }
 
