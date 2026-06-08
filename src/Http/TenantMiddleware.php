@@ -51,6 +51,15 @@ final class TenantMiddleware implements RouteMiddleware
         // (auto-injection / the query guard) can read request-scoped tenancy state.
         CurrentContext::set($this->context);
 
+        // Stash the authenticated user uuid on request-state so the Tenancy bypass facade can
+        // read the current user context-only (it has no Request). Mirrors the value the
+        // resolution pipeline reads from the 'auth.user.uuid' request attribute.
+        $userUuid = $request->attributes->get('auth.user.uuid');
+        $this->context->setRequestState(
+            'tenancy.user_uuid',
+            is_string($userUuid) ? $userUuid : null
+        );
+
         try {
             $this->pipeline->resolve($request, $this->context, $required);
 
@@ -67,6 +76,7 @@ final class TenantMiddleware implements RouteMiddleware
         } finally {
             // Win or lose, never leak tenancy request-state past this request.
             (new TenantContext($this->context))->clear();
+            $this->context->setRequestState('tenancy.user_uuid', null);
             CurrentContext::clear();
         }
     }
