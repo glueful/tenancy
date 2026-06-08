@@ -1,0 +1,49 @@
+{
+    "name": "glueful/tenancy",
+    "description": "Shared-database, row-level multi-tenancy for Glueful (tenant resolution, scoping, enforcement).",
+    "type": "glueful-extension",
+    "license": "MIT",
+    "authors": [{ "name": "Michael Tawiah Sowah", "email": "michael@glueful.dev" }],
+    "keywords": ["multi-tenancy", "tenancy", "row-level", "glueful"],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        { "type": "path", "url": "../../framework", "options": { "symlink": true } }
+    ],
+    "require": {
+        "php": "^8.3",
+        "glueful/framework": "@dev"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "squizlabs/php_codesniffer": "^3.6",
+        "phpstan/phpstan": "^1.0"
+    },
+    "homepage": "https://github.com/glueful/tenancy",
+    "autoload": {
+        "psr-4": { "Glueful\\Extensions\\Tenancy\\": "src/" },
+        "classmap": ["database/migrations/"]
+    },
+    "autoload-dev": {
+        "psr-4": { "Glueful\\Extensions\\Tenancy\\Tests\\": "tests/" }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "phpcs": "vendor/bin/phpcs --standard=PSR12 src",
+        "phpcbf": "vendor/bin/phpcbf --standard=PSR12 src",
+        "analyze": "vendor/bin/phpstan analyse"
+    },
+    "extra": {
+        "glueful": {
+            "name": "Tenancy",
+            "displayName": "Tenancy",
+            "description": "Shared-database, row-level multi-tenancy for Glueful.",
+            "version": "1.0.0",
+            "categories": ["multi-tenancy", "security"],
+            "publisher": "glueful-team",
+            "provider": "Glueful\\Extensions\\Tenancy\\TenancyServiceProvider",
+            "requires": { "glueful": ">=1.52.0", "extensions": [] }
+        }
+    },
+    "config": { "sort-packages": true }
+}
