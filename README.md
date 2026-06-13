@@ -421,6 +421,7 @@ force-stamp, and the raw-query guard.
 | `jwt.claim` | `'tenant_id'` | | JWT claim name |
 | `tables` | `[]` | | authoritative list of tenant-owned tables |
 | `enforcement.required_by_default` | `true` | | `BelongsToTenant` fails closed with no tenant |
+| `enforcement.require_authenticated` | `true` | | tenant selection requires `auth.user.uuid` before membership/bypass checks |
 | `enforcement.hide_existence` | `false` | | collapse the membership 403 → 404 |
 | `enforcement.guard.dev` | `'throw'` | | dev/test guard action |
 | `enforcement.guard.prod` | `'metric'` | | prod guard action — `metric` \| `log` \| `off` |

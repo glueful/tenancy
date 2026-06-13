@@ -87,4 +87,42 @@ final class TenantQueryGuardIntegrationTest extends TenancyTestCase
 
         self::assertIsArray($rows);
     }
+
+    public function test_raw_insert_cannot_write_foreign_tenant_uuid(): void
+    {
+        $this->activateTenant();
+        $victim = $this->makeActiveTenant('beta');
+
+        $this->expectException(TenantScopeViolationException::class);
+
+        $this->connection()->query()
+            ->from('invoices')
+            ->insert([
+                'uuid' => 'foreignraw01',
+                'tenant_uuid' => $victim->uuid,
+                'amount' => 500,
+            ]);
+    }
+
+    public function test_raw_update_cannot_reassign_rows_to_foreign_tenant_uuid(): void
+    {
+        $this->activateTenant();
+        $current = (new TenantContext($this->appContext()))->currentTenantUuid();
+        $victim = $this->makeActiveTenant('beta');
+
+        $this->connection()->query()
+            ->from('invoices')
+            ->insert([
+                'uuid' => 'ownraw00001',
+                'tenant_uuid' => $current,
+                'amount' => 100,
+            ]);
+
+        $this->expectException(TenantScopeViolationException::class);
+
+        $this->connection()->query()
+            ->from('invoices')
+            ->where('tenant_uuid', $current)
+            ->update(['tenant_uuid' => $victim->uuid]);
+    }
 }

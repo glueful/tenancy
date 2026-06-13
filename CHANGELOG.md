@@ -15,6 +15,25 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
+- **Security: unauthenticated tenant candidates now fail closed by default.** When a
+  request resolves a tenant from the configured resolvers but `auth.user.uuid` is
+  absent, the resolution pipeline now denies before setting tenant context
+  (`tenancy.enforcement.require_authenticated`, default `true`). This closes the
+  misordered/missing-auth route case where a client-controlled tenant header/query/path
+  could select any active tenant without a membership check.
+- **Security: raw writes cannot plant or reassign rows into another tenant.**
+  `TenantQueryGuard` now inspects tenant-owned `INSERT`/`UPDATE` statements that write
+  `tenant_uuid` and rejects values different from the active tenant. This closes the
+  conservative-heuristic gap where merely mentioning `tenant_uuid` made a raw write look
+  scoped while writing a victim tenant id.
+- **Security: load-bearing enforcement registration fails loud outside production.**
+  `tenancy.tables` is validated during boot and enforcement registration is wrapped so
+  non-production environments rethrow instead of silently booting without the table hook
+  or query guard. Production logs and continues per the framework extension posture.
+- **Queue system jobs can now explicitly use `Tenancy::runAsSystem()`.** No-tenant jobs
+  using `PropagatesTenant` now set `CurrentContext` while leaving tenant/bypass empty, so
+  trusted maintenance jobs can opt into `runAsSystem()` instead of failing because the
+  facade had no current context.
 - **Boot compatibility with framework 1.55.** `services()` mixed DSL array specs with a
   strongly-typed `FactoryDefinition` object (for the config-ordered `ResolverChain`). The
   framework's DSL service loader rejects non-array specs (`"Service '<id>' must be an array"`),

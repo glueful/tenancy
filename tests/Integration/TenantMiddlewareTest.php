@@ -123,6 +123,27 @@ final class TenantMiddlewareTest extends TenancyTestCase
         $this->assertNull($ctx->getRequestState('tenancy.tenant'));
     }
 
+    public function test_unauthenticated_tenant_candidate_fails_closed_by_default(): void
+    {
+        $ctx = $this->appContext();
+        $this->makeActiveTenant('acme');
+
+        $middleware = new TenantMiddleware($this->pipelineFor('acme'), $ctx);
+
+        $ran = false;
+        $result = $middleware->handle(
+            $this->requestForUser(null),
+            function (Request $r) use (&$ran): Response {
+                $ran = true;
+                return Response::success();
+            }
+        );
+
+        self::assertFalse($ran, '$next must not run for unauthenticated tenant selection');
+        self::assertSame(403, $result->getStatusCode());
+        self::assertNull($ctx->getRequestState('tenancy.tenant'));
+    }
+
     public function test_hide_existence_collapses_403_to_404(): void
     {
         $ctx = $this->appContext();

@@ -116,6 +116,7 @@ trait PropagatesTenant
 
         if ($uuid === null) {
             // System-scoped: run with no tenant. Clear in finally to reset the reused context.
+            CurrentContext::set($workerCtx);
             try {
                 return $work();
             } finally {
