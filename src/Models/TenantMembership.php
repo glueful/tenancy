@@ -48,8 +48,6 @@ class TenantMembership extends Model
         'uuid',
         'tenant_uuid',
         'user_uuid',
-        'role',
-        'status',
     ];
 
     /**

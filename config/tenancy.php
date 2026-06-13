@@ -11,6 +11,7 @@ return [
     'tables'    => [],                            // AUTHORITATIVE list of tenant-owned tables (every BelongsToTenant model's table)
     'enforcement' => [
         'required_by_default' => true,            // BelongsToTenant fails closed
+        'require_authenticated' => true,          // tenant candidates require auth before membership/bypass checks
         'hide_existence' => false,                // when true the tenant middleware collapses 403 → 404 (never leak membership)
         'guard' => [
             'dev'  => 'throw',                    // dev/test: pre-execution interceptor throws

@@ -24,7 +24,7 @@ use Symfony\Component\HttpFoundation\Request;
  *   - an authenticated principal who is not an active member (and has no bypass) gets a 403
  *     ({@see TenantAccessDeniedException});
  *   - a bypass-holding principal is marked 'forAnyTenant' and skips membership;
- *   - unauthenticated requests are not membership-checked here (auth is enforced upstream).
+ *   - unauthenticated tenant selection fails closed by default.
  */
 final class TenantResolutionPipeline
 {
@@ -71,20 +71,27 @@ final class TenantResolutionPipeline
 
         $userUuid = $request->attributes->get('auth.user.uuid');
 
-        if ($userUuid !== null) {
-            if ($this->access->canBypass($context, $userUuid)) {
-                // Cross-tenant principal — allowed without a membership row.
-                $tc->setBypass('forAnyTenant');
-            } else {
-                $membership = TenantMembership::query($context)
-                    ->where('tenant_uuid', $tenant->uuid)
-                    ->where('user_uuid', $userUuid)
-                    ->where('status', 'active')
-                    ->first();
+        if ($userUuid === null) {
+            if ((bool) \config($context, 'tenancy.enforcement.require_authenticated', true) === true) {
+                throw new TenantAccessDeniedException('Authentication is required to select a tenant');
+            }
 
-                if ($membership === null) {
-                    throw new TenantAccessDeniedException('Not a member of this tenant');
-                }
+            $tc->setTenant($tenant);
+            return;
+        }
+
+        if ($this->access->canBypass($context, $userUuid)) {
+            // Cross-tenant principal — allowed without a membership row.
+            $tc->setBypass('forAnyTenant');
+        } else {
+            $membership = TenantMembership::query($context)
+                ->where('tenant_uuid', $tenant->uuid)
+                ->where('user_uuid', $userUuid)
+                ->where('status', 'active')
+                ->first();
+
+            if ($membership === null) {
+                throw new TenantAccessDeniedException('Not a member of this tenant');
             }
         }
 

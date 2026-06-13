@@ -6,6 +6,7 @@ namespace Glueful\Extensions\Tenancy\Tests\Integration;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Events\QueueContextHolder;
+use Glueful\Extensions\Tenancy\Bypass\Tenancy;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Models\Tenant;
@@ -52,6 +53,28 @@ final class RecordingTenantJob extends Job
             $this->seenTenantUuid = $workerCtx !== null
                 ? (new TenantContext($workerCtx))->currentTenantUuid()
                 : null;
+        });
+    }
+}
+
+final class SystemMaintenanceJob extends Job
+{
+    use PropagatesTenant;
+
+    public bool $ran = false;
+
+    public function __construct(array $data = [], ?ApplicationContext $context = null)
+    {
+        parent::__construct($data, $context);
+        $this->captureTenantContext($context);
+    }
+
+    public function handle(): void
+    {
+        $this->runInTenantContext(function (): void {
+            Tenancy::runAsSystem(function (): void {
+                $this->ran = true;
+            });
         });
     }
 }
@@ -181,6 +204,28 @@ final class QueueTenantPropagationTest extends TenancyTestCase
         $this->assertTrue($job->ran);
         $this->assertNull($job->seenTenantUuid, 'no tenant -> system-scoped (no tenant active)');
         // Reused context reset afterwards.
+        $this->assertNull((new TenantContext($workerCtx))->currentTenant());
+        $this->assertNull(CurrentContext::get());
+    }
+
+    public function test_no_tenant_job_can_explicitly_use_run_as_system(): void
+    {
+        $ctx = $this->appContext();
+
+        CurrentContext::set($ctx);
+        $job = new SystemMaintenanceJob(['x' => 1], $ctx);
+        CurrentContext::clear();
+
+        $this->assertArrayNotHasKey('tenant_uuid', $job->getPayload());
+
+        $workerCtx = new ApplicationContext(basePath: sys_get_temp_dir(), environment: 'testing');
+        $workerCtx->setContainer($this->appContext()->getContainer());
+        QueueContextHolder::setContext($workerCtx);
+        CurrentContext::clear();
+
+        $job->handle();
+
+        $this->assertTrue($job->ran);
         $this->assertNull((new TenantContext($workerCtx))->currentTenant());
         $this->assertNull(CurrentContext::get());
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Glueful\Extensions\Tenancy\Resolution;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Psr\Container\ContainerInterface;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\ActiveSessionResolver;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\HeaderResolver;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\JwtClaimResolver;
@@ -43,6 +44,16 @@ final class ResolverFactory
         'jwt'            => JwtClaimResolver::class,
         'active_session' => ActiveSessionResolver::class,
     ];
+
+    /**
+     * Container-adapter for the DSL `'factory'` binding in TenancyServiceProvider. A named
+     * (non-closure) callable so it is production-safe; resolves the ApplicationContext from the
+     * container and delegates to {@see self::chain()}.
+     */
+    public static function chainFromContainer(ContainerInterface $container): ResolverChain
+    {
+        return self::chain($container->get(ApplicationContext::class));
+    }
 
     public static function chain(ApplicationContext $context): ResolverChain
     {

@@ -7,6 +7,7 @@ namespace Glueful\Extensions\Tenancy\Query;
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\Execution\QueryInterceptorInterface;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
+use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Exceptions\TenantScopeViolationException;
 use Psr\Log\LoggerInterface;
 
@@ -56,12 +57,125 @@ final class TenantQueryGuard implements QueryInterceptorInterface
             return;
         }
 
+        $this->guardTenantUuidWrite($ctx, $sql, $bindings);
+
         $table = $this->referencesUnscopedTenantTable($sql);
         if ($table === null) {
             return;
         }
 
         $this->act($ctx, $table, $sql);
+    }
+
+    /**
+     * Prevent raw writes from planting/reassigning rows into another tenant.
+     *
+     * The normal guard treats any tenant_uuid mention as scoped. That is correct for
+     * reads, but unsafe for writes: `INSERT ... tenant_uuid = victim` and
+     * `UPDATE ... SET tenant_uuid = victim WHERE tenant_uuid = current` both name
+     * the column while crossing the tenant boundary. This backstop intentionally
+     * covers the framework/query-builder shapes where value bindings line up with
+     * column order: INSERT ... VALUES (...) and simple UPDATE ... SET clauses.
+     * Exotic raw SQL such as INSERT ... SELECT or SET expressions that consume
+     * bindings before tenant_uuid are outside this heuristic; tenant-scoped ORM
+     * writes remain the primary enforcement path.
+     *
+     * @param array<int|string,mixed> $bindings
+     */
+    private function guardTenantUuidWrite(ApplicationContext $ctx, string $sql, array $bindings): void
+    {
+        $tenant = (new TenantContext($ctx))->currentTenant();
+        if ($tenant === null) {
+            return;
+        }
+
+        $table = $this->tenantOwnedWriteTarget($sql);
+        if ($table === null) {
+            return;
+        }
+
+        foreach ($this->writtenTenantUuids($sql, array_values($bindings)) as $writeValue) {
+            if ($writeValue === null || (string) $writeValue === $tenant->uuid) {
+                continue;
+            }
+
+            throw new TenantScopeViolationException(sprintf(
+                'Raw write to tenant-owned table "%s" attempted to write tenant_uuid "%s" '
+                . 'while current tenant is "%s".',
+                $table,
+                (string) $writeValue,
+                $tenant->uuid
+            ));
+        }
+    }
+
+    private function tenantOwnedWriteTarget(string $sql): ?string
+    {
+        $lower = strtolower(ltrim($sql));
+        if (!preg_match('/^(insert\s+into|update)\s+["`\']?([a-z0-9_.-]+)["`\']?/i', $lower, $matches)) {
+            return null;
+        }
+
+        $table = $matches[2];
+
+        return TenantTableRegistry::isTenantOwned($table) ? $table : null;
+    }
+
+    /**
+     * @param list<mixed> $bindings
+     */
+    private function writtenTenantUuids(string $sql, array $bindings): array
+    {
+        $lower = strtolower($sql);
+
+        if (preg_match('/^insert\s+into\s+["`\']?[a-z0-9_.-]+["`\']?\s*\(([^)]+)\)/i', $lower, $matches)) {
+            $columns = $this->parseColumnList($matches[1]);
+            $index = array_search('tenant_uuid', $columns, true);
+            if ($index === false) {
+                return [];
+            }
+
+            $values = [];
+            $columnCount = count($columns);
+            for ($offset = $index; $offset < count($bindings); $offset += $columnCount) {
+                $values[] = $bindings[$offset] ?? null;
+            }
+
+            return $values;
+        }
+
+        if (preg_match('/^update\s+["`\']?[a-z0-9_.-]+["`\']?\s+set\s+(.+?)(?:\s+where\s+|$)/i', $lower, $matches)) {
+            $columns = $this->parseSetColumns($matches[1]);
+            $index = array_search('tenant_uuid', $columns, true);
+            return $index === false ? [] : [$bindings[$index] ?? null];
+        }
+
+        return [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseColumnList(string $columns): array
+    {
+        return array_values(array_map(
+            static fn(string $column): string => trim($column, " \t\n\r\0\x0B`\"'"),
+            explode(',', $columns)
+        ));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseSetColumns(string $setClause): array
+    {
+        $columns = [];
+        foreach (explode(',', $setClause) as $assignment) {
+            $parts = explode('=', $assignment, 2);
+            $columns[] = trim($parts[0], " \t\n\r\0\x0B`\"'");
+        }
+
+        return $columns;
     }
 
     /**

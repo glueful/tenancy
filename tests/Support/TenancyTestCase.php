@@ -95,7 +95,6 @@ abstract class TenancyTestCase extends TestCase
             'uuid' => Utils::generateNanoID(12),
             'slug' => $slug,
             'name' => $name ?? ucfirst($slug),
-            'status' => 'active',
         ]);
     }
 
@@ -108,12 +107,22 @@ abstract class TenancyTestCase extends TestCase
         string $role = 'member',
         string $status = 'active'
     ): TenantMembership {
-        return TenantMembership::create($this->context, [
+        $membership = TenantMembership::create($this->context, [
             'uuid' => Utils::generateNanoID(12),
             'tenant_uuid' => $tenantUuid,
             'user_uuid' => $userUuid,
-            'role' => $role,
-            'status' => $status,
         ]);
+
+        if ($role !== 'member' || $status !== 'active') {
+            $this->connection()->table('tenant_memberships')
+                ->where('uuid', $membership->uuid)
+                ->update(['role' => $role, 'status' => $status]);
+
+            $membership = TenantMembership::query($this->context)
+                ->where('uuid', $membership->uuid)
+                ->first();
+        }
+
+        return $membership;
     }
 }

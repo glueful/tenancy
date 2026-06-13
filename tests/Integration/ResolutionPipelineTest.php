@@ -112,12 +112,10 @@ final class ResolutionPipelineTest extends TenancyTestCase
     public function test_inactive_tenant_throws_not_found(): void
     {
         $ctx = $this->appContext();
-        Tenant::create($ctx, [
-            'uuid' => Utils::generateNanoID(12),
-            'slug' => 'suspended-co',
-            'name' => 'Suspended Co',
-            'status' => 'suspended',
-        ]);
+        $tenant = $this->makeActiveTenant('suspended-co', 'Suspended Co');
+        $this->connection()->table('tenants')
+            ->where('uuid', $tenant->uuid)
+            ->update(['status' => 'suspended']);
         $pipeline = new TenantResolutionPipeline($this->chainReturning('suspended-co'), $this->accessGranting(false));
 
         $this->expectException(TenantNotFoundException::class);
@@ -214,9 +212,12 @@ final class ResolutionPipelineTest extends TenancyTestCase
         $this->assertNull($ctx->getRequestState('tenancy.bypass'));
     }
 
-    public function test_unauthenticated_request_with_active_tenant_passes_without_membership(): void
+    public function test_unauthenticated_request_with_active_tenant_can_opt_out_of_auth_requirement(): void
     {
         $ctx = $this->appContext();
+        $ctx->mergeConfigDefaults('tenancy', [
+            'enforcement' => ['require_authenticated' => false],
+        ]);
         $tenant = $this->makeActiveTenant('acme');
         // no auth.user.uuid attribute, no membership row
         $pipeline = new TenantResolutionPipeline($this->chainReturning('acme'), $this->accessGranting(false));

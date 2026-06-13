@@ -43,6 +43,10 @@ final class TenantTableRegistry
         $tables = \config($context, 'tenancy.tables', []);
 
         foreach ($tables as $table) {
+            if (!is_string($table) || $table === '') {
+                throw new \InvalidArgumentException('tenancy.tables must contain only non-empty table names.');
+            }
+
             self::register($table);
         }
     }

@@ -188,6 +188,8 @@ resolver's input in `config/tenancy.php`:
 | `active_session` | the `tenancy.active_tenant` request attribute |
 
 Trim the list to only the resolvers you use; unknown names are skipped rather than erroring.
+Keep client-controlled resolvers (`header`, `query`, `path`) after trusted resolvers when more than
+one source may be present; resolver order is security-relevant because the first candidate wins.
 
 ## Automatic scoping
 
@@ -345,10 +347,13 @@ final class BuildReports extends BaseCommand
 use Glueful\Extensions\Tenancy\Scheduling\ForEachTenant;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 
-ForEachTenant::run($context, function (Tenant $tenant): void {
+$result = ForEachTenant::run($context, function (Tenant $tenant): void {
     // tenant-scoped maintenance for $tenant; inactive tenants are skipped
 });
 ```
+
+One tenant failure does not abort the remaining tenants. Inspect `$result->failed` and
+`$result->errors` after the run to decide whether the scheduler job should alert or retry.
 
 ## Console commands
 
@@ -412,7 +417,7 @@ force-stamp, and the raw-query guard.
 
 | Key | Default | Env | Purpose |
 | --- | --- | --- | --- |
-| `enabled` | `true` | | master switch; `false` fully disarms the query guard |
+| `enabled` | `true` | | master switch; `false` skips table-hook and query-guard enforcement registration |
 | `resolvers` | `['subdomain','path','header','query','jwt','active_session']` | | resolver precedence (first non-null wins) |
 | `subdomain.base_domain` | `null` | `TENANCY_BASE_DOMAIN` | base host for subdomain resolution |
 | `path.segment` | `'t'` | | leading path segment |
@@ -421,6 +426,7 @@ force-stamp, and the raw-query guard.
 | `jwt.claim` | `'tenant_id'` | | JWT claim name |
 | `tables` | `[]` | | authoritative list of tenant-owned tables |
 | `enforcement.required_by_default` | `true` | | `BelongsToTenant` fails closed with no tenant |
+| `enforcement.require_authenticated` | `true` | | tenant selection requires `auth.user.uuid` before membership/bypass checks |
 | `enforcement.hide_existence` | `false` | | collapse the membership 403 → 404 |
 | `enforcement.guard.dev` | `'throw'` | | dev/test guard action |
 | `enforcement.guard.prod` | `'metric'` | | prod guard action — `metric` \| `log` \| `off` |
