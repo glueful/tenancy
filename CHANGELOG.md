@@ -34,6 +34,24 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   using `PropagatesTenant` now set `CurrentContext` while leaving tenant/bypass empty, so
   trusted maintenance jobs can opt into `runAsSystem()` instead of failing because the
   facade had no current context.
+- **Joined raw query-builder reads no longer receive ambiguous tenant predicates.**
+  The `Connection::table()` auto-injection hook now qualifies the primary table's
+  `tenant_uuid` predicate, so joined reads against another table that also has a
+  `tenant_uuid` column do not fail or bind the wrong table.
+- **`ForEachTenant` now isolates per-tenant failures.** A thrown exception from one
+  tenant's scheduled work is recorded in a `ForEachTenantResult` and does not abort
+  later active tenants; the helper still clears tenant/current context after every
+  iteration.
+- **Tenant lifecycle fields are no longer mass assignable.** `Tenant::$fillable` no
+  longer accepts `status`, and `TenantMembership::$fillable` no longer accepts `role`
+  or `status`; trusted code should change those fields through explicit commands or
+  repository/storage paths.
+- **`tenancy.enabled=false` now skips all enforcement registration.** Boot no longer
+  registers the table hook or raw-query guard when the extension is disabled, matching
+  the documented master-switch behavior.
+- **Raw multi-row inserts are checked row-by-row for foreign `tenant_uuid` writes.**
+  The write guard now scans every inserted row's tenant binding instead of only the
+  first row's binding.
 - **Boot compatibility with framework 1.55.** `services()` mixed DSL array specs with a
   strongly-typed `FactoryDefinition` object (for the config-ordered `ResolverChain`). The
   framework's DSL service loader rejects non-array specs (`"Service '<id>' must be an array"`),

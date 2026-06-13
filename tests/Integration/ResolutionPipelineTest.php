@@ -112,12 +112,10 @@ final class ResolutionPipelineTest extends TenancyTestCase
     public function test_inactive_tenant_throws_not_found(): void
     {
         $ctx = $this->appContext();
-        Tenant::create($ctx, [
-            'uuid' => Utils::generateNanoID(12),
-            'slug' => 'suspended-co',
-            'name' => 'Suspended Co',
-            'status' => 'suspended',
-        ]);
+        $tenant = $this->makeActiveTenant('suspended-co', 'Suspended Co');
+        $this->connection()->table('tenants')
+            ->where('uuid', $tenant->uuid)
+            ->update(['status' => 'suspended']);
         $pipeline = new TenantResolutionPipeline($this->chainReturning('suspended-co'), $this->accessGranting(false));
 
         $this->expectException(TenantNotFoundException::class);

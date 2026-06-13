@@ -203,4 +203,31 @@ final class CliTenantContextTest extends TenancyTestCase
         $this->assertNull($tc->bypassMode());
         $this->assertNull(CurrentContext::get());
     }
+
+    public function test_for_each_tenant_continues_after_one_tenant_fails(): void
+    {
+        $ctx = $this->appContext();
+        $acme = $this->makeActiveTenant('acme');
+        $globex = $this->makeActiveTenant('globex');
+
+        $seen = [];
+        $result = ForEachTenant::run($ctx, function (Tenant $tenant) use (&$seen, $acme): void {
+            $seen[] = $tenant->uuid;
+            if ($tenant->uuid === $acme->uuid) {
+                throw new \RuntimeException('tenant failed');
+            }
+        });
+
+        sort($seen);
+        $expected = [$acme->uuid, $globex->uuid];
+        sort($expected);
+
+        $this->assertSame($expected, $seen);
+        $this->assertSame(2, $result->total);
+        $this->assertSame(1, $result->succeeded);
+        $this->assertSame(1, $result->failed);
+        $this->assertArrayHasKey($acme->uuid, $result->errors);
+        $this->assertNull((new TenantContext($ctx))->currentTenant());
+        $this->assertNull(CurrentContext::get());
+    }
 }

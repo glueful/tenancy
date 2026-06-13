@@ -8,6 +8,7 @@ use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Exceptions\TenantScopeViolationException;
+use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Query\TenantQueryGuard;
 use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
 use PHPUnit\Framework\TestCase;
@@ -48,6 +49,16 @@ final class TenantQueryGuardTest extends TestCase
 
     private function activate(ApplicationContext $ctx): void
     {
+        CurrentContext::set($ctx);
+    }
+
+    private function activateTenant(ApplicationContext $ctx, string $tenantUuid = 'tenant-a'): void
+    {
+        (new TenantContext($ctx))->setTenant(new Tenant([
+            'uuid' => $tenantUuid,
+            'slug' => 'tenant-a',
+            'name' => 'Tenant A',
+        ]));
         CurrentContext::set($ctx);
     }
 
@@ -187,6 +198,19 @@ final class TenantQueryGuardTest extends TestCase
         (new TenantQueryGuard())->before('create table invoices (id integer, tenant_uuid text)', []);
 
         $this->expectNotToPerformAssertions();
+    }
+
+    public function testMultiRowInsertCannotWriteForeignTenantUuidInLaterRow(): void
+    {
+        TenantTableRegistry::register('invoices');
+        $this->activateTenant($this->devContext(), 'tenant-a');
+
+        $this->expectException(TenantScopeViolationException::class);
+
+        (new TenantQueryGuard())->before(
+            'insert into invoices (uuid, tenant_uuid, amount) values (?, ?, ?), (?, ?, ?)',
+            ['row-1', 'tenant-a', 100, 'row-2', 'tenant-b', 200]
+        );
     }
 
     /**

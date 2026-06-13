@@ -37,17 +37,29 @@ final class TenantModelTest extends TenancyTestCase
 
     public function test_inactive_tenant_is_not_active(): void
     {
-        Tenant::create($this->appContext(), [
-            'uuid' => Utils::generateNanoID(12),
-            'slug' => 'dormant',
-            'name' => 'Dormant',
-            'status' => 'suspended',
-        ]);
+        $created = $this->makeActiveTenant('dormant', 'Dormant');
+        $this->connection()->table('tenants')
+            ->where('uuid', $created->uuid)
+            ->update(['status' => 'suspended']);
 
         $tenant = Tenant::findBySlug($this->appContext(), 'dormant');
 
         $this->assertInstanceOf(Tenant::class, $tenant);
         $this->assertFalse($tenant->isActive());
+    }
+
+    public function test_tenant_status_is_not_mass_assignable(): void
+    {
+        $tenant = Tenant::create($this->appContext(), [
+            'uuid' => Utils::generateNanoID(12),
+            'slug' => 'status-payload',
+            'name' => 'Status Payload',
+            'status' => 'suspended',
+        ]);
+
+        $row = $this->connection()->table('tenants')->where('uuid', $tenant->uuid)->first();
+
+        $this->assertSame('active', $row['status']);
     }
 
     public function test_membership_for_user_returns_active_membership(): void
@@ -71,6 +83,25 @@ final class TenantModelTest extends TenancyTestCase
         $this->assertSame($tenant->uuid, $membership->tenant_uuid);
         $this->assertSame('admin', $membership->role);
         $this->assertSame('active', $membership->status);
+    }
+
+    public function test_membership_role_and_status_are_not_mass_assignable(): void
+    {
+        $tenant = $this->makeActiveTenant('membership-payload');
+        $userUuid = Utils::generateNanoID(12);
+
+        $membership = TenantMembership::create($this->appContext(), [
+            'uuid' => Utils::generateNanoID(12),
+            'tenant_uuid' => $tenant->uuid,
+            'user_uuid' => $userUuid,
+            'role' => 'admin',
+            'status' => 'inactive',
+        ]);
+
+        $row = $this->connection()->table('tenant_memberships')->where('uuid', $membership->uuid)->first();
+
+        $this->assertSame('member', $row['role']);
+        $this->assertSame('active', $row['status']);
     }
 
     public function test_tenant_is_central_no_tenant_scoping(): void

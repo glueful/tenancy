@@ -84,12 +84,10 @@ final class TenantMiddlewareTest extends TenancyTestCase
     public function test_inactive_tenant_returns_404_and_does_not_run_next(): void
     {
         $ctx = $this->appContext();
-        Tenant::create($ctx, [
-            'uuid' => Utils::generateNanoID(12),
-            'slug' => 'suspended-co',
-            'name' => 'Suspended Co',
-            'status' => 'suspended',
-        ]);
+        $tenant = $this->makeActiveTenant('suspended-co', 'Suspended Co');
+        $this->connection()->table('tenants')
+            ->where('uuid', $tenant->uuid)
+            ->update(['status' => 'suspended']);
 
         $middleware = new TenantMiddleware($this->pipelineFor('suspended-co'), $ctx);
 

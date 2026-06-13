@@ -91,20 +91,19 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
     public function boot(ApplicationContext $context): void
     {
         try {
-            // The config `tenancy.tables` list is the AUTHORITATIVE registry of tenant-owned
-            // tables. Populate it at boot — before any request runs a query — so raw-query
-            // auto-injection protects those tables regardless of model boot order. The
-            // BelongsToTenant trait still registers as a backstop.
-            TenantTableRegistry::loadFromConfig($context);
-
-            // Install the primary-table auto-injection hook on the query builder.
-            self::registerTableHook();
-
-            // Install the pre-execution safety net: the TenantQueryGuard catches raw/unscoped
-            // access to tenant-owned tables that the auto-injection hook never saw. Registered via
-            // the CHAINABLE interceptor seam so host/other interceptors still run. Gated on
-            // tenancy.enabled so disabling the extension fully disarms enforcement.
             if (\config($context, 'tenancy.enabled', true) === true) {
+                // The config `tenancy.tables` list is the AUTHORITATIVE registry of tenant-owned
+                // tables. Populate it at boot — before any request runs a query — so raw-query
+                // auto-injection protects those tables regardless of model boot order. The
+                // BelongsToTenant trait still registers as a backstop.
+                TenantTableRegistry::loadFromConfig($context);
+
+                // Install the primary-table auto-injection hook on the query builder.
+                self::registerTableHook();
+
+                // Install the pre-execution safety net: the TenantQueryGuard catches raw/unscoped
+                // access to tenant-owned tables that the auto-injection hook never saw. Registered
+                // via the CHAINABLE interceptor seam so host/other interceptors still run.
                 QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
             }
         } catch (\Throwable $e) {
@@ -157,11 +156,9 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 return;
             }
 
-            // Unqualified column (not `{$table}.tenant_uuid`): a table-qualified predicate
-            // trips the framework's UPDATE/DELETE column validator on same-tenant raw writes
-            // (it re-validates already-wrapped identifiers). Unqualified scopes reads and
-            // writes uniformly. See TenantScope's docblock for the full rationale.
-            $qb->where('tenant_uuid', $tenant->uuid);
+            // Qualify the primary-table predicate so joined reads against another table
+            // carrying tenant_uuid do not become ambiguous.
+            $qb->where($table . '.tenant_uuid', $tenant->uuid);
         });
     }
 

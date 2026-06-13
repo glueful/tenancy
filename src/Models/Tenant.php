@@ -58,7 +58,6 @@ class Tenant extends Model implements SoftDeletable
         'uuid',
         'slug',
         'name',
-        'status',
         'settings',
     ];
 

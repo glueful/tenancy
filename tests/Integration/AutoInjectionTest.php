@@ -59,6 +59,16 @@ final class AutoInjectionTest extends TenancyTestCase
             $table->index('tenant_uuid');
         });
 
+        // Carries the same tenant_uuid column to exercise joined reads where an
+        // unqualified tenant predicate would be ambiguous.
+        $this->connection()->getSchemaBuilder()->createTable('customers', function ($table) {
+            $table->bigInteger('id')->primary()->autoIncrement();
+            $table->string('tenant_uuid', 12);
+            $table->string('name', 255);
+
+            $table->index('tenant_uuid');
+        });
+
         $this->tenantA = $this->makeActiveTenant('alpha');
         $this->tenantB = $this->makeActiveTenant('beta');
 
@@ -76,6 +86,15 @@ final class AutoInjectionTest extends TenancyTestCase
             'uuid' => Utils::generateNanoID(12),
             'tenant_uuid' => $this->tenantB->uuid,
             'name' => 'wb',
+        ]);
+
+        $this->connection()->table('customers')->insert([
+            'tenant_uuid' => $this->tenantA->uuid,
+            'name' => 'alice',
+        ]);
+        $this->connection()->table('customers')->insert([
+            'tenant_uuid' => $this->tenantB->uuid,
+            'name' => 'bob',
         ]);
     }
 
@@ -166,5 +185,34 @@ final class AutoInjectionTest extends TenancyTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         TenantQuery::tenantTable($this->appContext(), 'unregistered');
+    }
+
+    public function testJoinedReadQualifiesInjectedTenantPredicate(): void
+    {
+        TenantTableRegistry::register('invoices');
+        $this->activate($this->tenantA);
+
+        $rows = $this->connection()->table('invoices')
+            ->join('customers', 'invoices.tenant_uuid', '=', 'customers.tenant_uuid')
+            ->select(['invoices.uuid', 'customers.name'])
+            ->get();
+
+        self::assertCount(2, $rows);
+        self::assertSame(['alice'], array_values(array_unique(array_column($rows, 'name'))));
+    }
+
+    public function testSameTenantBulkUpdateStillWorksWithInjectedPredicate(): void
+    {
+        TenantTableRegistry::register('invoices');
+        $this->activate($this->tenantA);
+
+        $affected = $this->connection()->table('invoices')->update(['amount' => 321]);
+
+        self::assertSame(2, $affected);
+        $rows = $this->connection()->query()
+            ->from('invoices')
+            ->where('tenant_uuid', $this->tenantA->uuid)
+            ->get();
+        self::assertSame([321, 321], array_column($rows, 'amount'));
     }
 }

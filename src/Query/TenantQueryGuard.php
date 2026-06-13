@@ -91,17 +91,19 @@ final class TenantQueryGuard implements QueryInterceptorInterface
             return;
         }
 
-        $writeValue = $this->writtenTenantUuid($sql, array_values($bindings));
-        if ($writeValue === null || (string) $writeValue === $tenant->uuid) {
-            return;
-        }
+        foreach ($this->writtenTenantUuids($sql, array_values($bindings)) as $writeValue) {
+            if ($writeValue === null || (string) $writeValue === $tenant->uuid) {
+                continue;
+            }
 
-        throw new TenantScopeViolationException(sprintf(
-            'Raw write to tenant-owned table "%s" attempted to write tenant_uuid "%s" while current tenant is "%s".',
-            $table,
-            (string) $writeValue,
-            $tenant->uuid
-        ));
+            throw new TenantScopeViolationException(sprintf(
+                'Raw write to tenant-owned table "%s" attempted to write tenant_uuid "%s" '
+                . 'while current tenant is "%s".',
+                $table,
+                (string) $writeValue,
+                $tenant->uuid
+            ));
+        }
     }
 
     private function tenantOwnedWriteTarget(string $sql): ?string
@@ -119,23 +121,33 @@ final class TenantQueryGuard implements QueryInterceptorInterface
     /**
      * @param list<mixed> $bindings
      */
-    private function writtenTenantUuid(string $sql, array $bindings): mixed
+    private function writtenTenantUuids(string $sql, array $bindings): array
     {
         $lower = strtolower($sql);
 
         if (preg_match('/^insert\s+into\s+["`\']?[a-z0-9_.-]+["`\']?\s*\(([^)]+)\)/i', $lower, $matches)) {
             $columns = $this->parseColumnList($matches[1]);
             $index = array_search('tenant_uuid', $columns, true);
-            return $index === false ? null : ($bindings[$index] ?? null);
+            if ($index === false) {
+                return [];
+            }
+
+            $values = [];
+            $columnCount = count($columns);
+            for ($offset = $index; $offset < count($bindings); $offset += $columnCount) {
+                $values[] = $bindings[$offset] ?? null;
+            }
+
+            return $values;
         }
 
         if (preg_match('/^update\s+["`\']?[a-z0-9_.-]+["`\']?\s+set\s+(.+?)(?:\s+where\s+|$)/i', $lower, $matches)) {
             $columns = $this->parseSetColumns($matches[1]);
             $index = array_search('tenant_uuid', $columns, true);
-            return $index === false ? null : ($bindings[$index] ?? null);
+            return $index === false ? [] : [$bindings[$index] ?? null];
         }
 
-        return null;
+        return [];
     }
 
     /**
