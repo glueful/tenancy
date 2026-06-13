@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-13
+
 ### Added
 
 - **Discovery-path regression test.** Loads the provider through the framework's real
