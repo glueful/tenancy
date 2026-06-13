@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Glueful\Extensions\Tenancy;
 
 use Glueful\Bootstrap\ApplicationContext;
-use Glueful\Container\Definition\FactoryDefinition;
 use Glueful\Database\Connection;
 use Glueful\Database\Execution\QueryExecutor;
 use Glueful\Database\Migrations\MigrationPriority;
@@ -20,7 +19,6 @@ use Glueful\Extensions\Tenancy\Resolution\ResolverFactory;
 use Glueful\Extensions\Tenancy\Resolution\TenantResolutionPipeline;
 use Glueful\Extensions\Tenancy\Strategy\RowLevelStrategy;
 use Glueful\Extensions\Tenancy\Strategy\TenancyStrategyInterface;
-use Psr\Container\ContainerInterface;
 
 final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 {
@@ -57,12 +55,12 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
             ],
             // The resolver chain's ORDER is config-driven (config('tenancy.resolvers')),
             // so it must be built at runtime from the resolved context — hence a factory,
-            // not plain autowiring.
-            ResolverChain::class => new FactoryDefinition(
-                ResolverChain::class,
-                static fn(ContainerInterface $c): ResolverChain =>
-                    ResolverFactory::chain($c->get(ApplicationContext::class))
-            ),
+            // not plain autowiring. A named (non-closure) factory keeps this DSL spec
+            // production-safe; the DSL services() loader rejects closures for production.
+            ResolverChain::class => [
+                'factory' => [ResolverFactory::class, 'chainFromContainer'],
+                'shared' => true,
+            ],
             // Autowired from ResolverChain (factory above) + TenantAccess.
             TenantResolutionPipeline::class => [
                 'class' => TenantResolutionPipeline::class,

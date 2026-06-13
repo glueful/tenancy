@@ -4,6 +4,25 @@ All notable changes to `glueful/tenancy` will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- **Discovery-path regression test.** Loads the provider through the framework's real
+  extension-discovery dispatch — for this DSL-based provider that means compiling `services()`
+  through `DefaultServicesLoader`, which rejects non-array specs. Guards against a typed
+  `Definition` object (e.g. the resolver-chain factory) being placed back into `services()`.
+
+### Fixed
+
+- **Boot compatibility with framework 1.55.** `services()` mixed DSL array specs with a
+  strongly-typed `FactoryDefinition` object (for the config-ordered `ResolverChain`). The
+  framework's DSL service loader rejects non-array specs (`"Service '<id>' must be an array"`),
+  so the object entry threw during boot in dev/test (and dropped bindings in production) under
+  framework 1.55. The resolver chain is now bound via a named (non-closure, production-safe) DSL
+  factory — `[ResolverFactory::class, 'chainFromContainer']` — keeping the whole `services()` map
+  pure DSL. Adds `ResolverFactory::chainFromContainer()` as the container adapter.
+
 ## [1.0.0] - 2026-06-08
 
 First release. **Shared-database, row-level (table-relationship) multi-tenancy** for Glueful: tenant-owned
