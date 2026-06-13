@@ -73,9 +73,12 @@ final class TenantQueryGuard implements QueryInterceptorInterface
      * The normal guard treats any tenant_uuid mention as scoped. That is correct for
      * reads, but unsafe for writes: `INSERT ... tenant_uuid = victim` and
      * `UPDATE ... SET tenant_uuid = victim WHERE tenant_uuid = current` both name
-     * the column while crossing the tenant boundary. QueryBuilder emits positional
-     * bindings in column order, so we can compare the written tenant_uuid value to
-     * the active tenant.
+     * the column while crossing the tenant boundary. This backstop intentionally
+     * covers the framework/query-builder shapes where value bindings line up with
+     * column order: INSERT ... VALUES (...) and simple UPDATE ... SET clauses.
+     * Exotic raw SQL such as INSERT ... SELECT or SET expressions that consume
+     * bindings before tenant_uuid are outside this heuristic; tenant-scoped ORM
+     * writes remain the primary enforcement path.
      *
      * @param array<int|string,mixed> $bindings
      */
