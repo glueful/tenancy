@@ -73,7 +73,10 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
     public function register(ApplicationContext $context): void
     {
         $this->mergeConfig('tenancy', require __DIR__ . '/../config/tenancy.php');
+    }
 
+    public function boot(ApplicationContext $context): void
+    {
         // Run AFTER the identity store (IDENTITY = -100) but BEFORE app/feature
         // migrations (DEFAULT = 0), so `tenants` exists before any app tenant-owned
         // table that FKs to `tenants.uuid`. NOT FOUNDATION (-200) — that tier is
@@ -86,10 +89,7 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
             MigrationPriority::DEFAULT - 50,
             'glueful/tenancy'
         );
-    }
 
-    public function boot(ApplicationContext $context): void
-    {
         try {
             if (\config($context, 'tenancy.enabled', true) === true) {
                 // The config `tenancy.tables` list is the AUTHORITATIVE registry of tenant-owned
