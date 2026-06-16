@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-16
+
+### Fixed
+
+- Register migration paths during provider boot so `migrate:run` sees the tenancy
+  schema through the same CLI lifecycle used by other extension migrations.
+
 ## [1.0.1] - 2026-06-13
 
 ### Added

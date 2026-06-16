@@ -3,8 +3,18 @@
     "description": "Shared-database, row-level multi-tenancy for Glueful (tenant resolution, scoping, enforcement).",
     "type": "glueful-extension",
     "license": "MIT",
-    "authors": [{ "name": "Michael Tawiah Sowah", "email": "michael@glueful.dev" }],
-    "keywords": ["multi-tenancy", "tenancy", "row-level", "glueful"],
+    "authors": [
+        {
+            "name": "Michael Tawiah Sowah",
+            "email": "michael@glueful.dev"
+        }
+    ],
+    "keywords": [
+        "multi-tenancy",
+        "tenancy",
+        "row-level",
+        "glueful"
+    ],
     "minimum-stability": "stable",
     "prefer-stable": true,
     "require": {
@@ -17,15 +27,21 @@
         "phpstan/phpstan": "^1.0"
     },
     "suggest": {
-        "glueful/aegis": "RBAC provider that can govern cross-tenant bypass — grant a role the configured bypass permission (tenancy.access_any / tenancy.manage) to unlock Tenancy::forAnyTenant()."
+        "glueful/aegis": "RBAC provider that can govern cross-tenant bypass \u2014 grant a role the configured bypass permission (tenancy.access_any / tenancy.manage) to unlock Tenancy::forAnyTenant()."
     },
     "homepage": "https://github.com/glueful/tenancy",
     "autoload": {
-        "psr-4": { "Glueful\\Extensions\\Tenancy\\": "src/" },
-        "classmap": ["migrations/"]
+        "psr-4": {
+            "Glueful\\Extensions\\Tenancy\\": "src/"
+        },
+        "classmap": [
+            "migrations/"
+        ]
     },
     "autoload-dev": {
-        "psr-4": { "Glueful\\Extensions\\Tenancy\\Tests\\": "tests/" }
+        "psr-4": {
+            "Glueful\\Extensions\\Tenancy\\Tests\\": "tests/"
+        }
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
@@ -38,12 +54,20 @@
             "name": "Tenancy",
             "displayName": "Tenancy",
             "description": "Shared-database, row-level multi-tenancy for Glueful.",
-            "version": "1.0.1",
-            "categories": ["multi-tenancy", "security"],
+            "version": "1.0.2",
+            "categories": [
+                "multi-tenancy",
+                "security"
+            ],
             "publisher": "glueful-team",
             "provider": "Glueful\\Extensions\\Tenancy\\TenancyServiceProvider",
-            "requires": { "glueful": ">=1.56.0", "extensions": [] }
+            "requires": {
+                "glueful": ">=1.56.0",
+                "extensions": []
+            }
         }
     },
-    "config": { "sort-packages": true }
+    "config": {
+        "sort-packages": true
+    }
 }
