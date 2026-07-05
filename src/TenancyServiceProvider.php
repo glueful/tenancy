@@ -8,7 +8,11 @@ use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\Connection;
 use Glueful\Database\Execution\QueryExecutor;
 use Glueful\Database\Migrations\MigrationPriority;
+use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
+use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
+use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
 use Glueful\Extensions\Tenancy\Models\Tenant;
@@ -40,6 +44,14 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'shared' => true,
                 'autowire' => true,
                 'alias' => ['tenant'],
+            ],
+            CurrentTenantResolver::class => [
+                'class' => ContractTenantResolver::class,
+                'shared' => true,
+            ],
+            TenantTableRegistryContract::class => [
+                'class' => ContractTableRegistry::class,
+                'shared' => true,
             ],
             RowLevelStrategy::class => [
                 'class' => RowLevelStrategy::class,

@@ -18,7 +18,8 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "require": {
-        "php": "^8.3"
+        "php": "^8.3",
+        "glueful/extension-contracts": "dev-dev"
     },
     "require-dev": {
         "glueful/framework": "^1.56.0",
@@ -69,5 +70,10 @@
     },
     "config": {
         "sort-packages": true
-    }
+    },
+    "repositories": [{
+        "name": "extension-contracts",
+        "type": "path",
+        "url": "../contracts"
+    }]
 }
