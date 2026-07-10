@@ -6,6 +6,44 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-10
+
+**Theme: the tenant identity surface** — verified custom domains, resolver profiles for
+public/admin surfaces, and the administration/provisioning bridges that let a host app manage
+tenants entirely through neutral contracts. Profiles stay inert until the host binds
+full-resolution readiness, so bootstrap and single-tenant installs are untouched.
+
+### Added
+- Globally unique, normalized tenant domains (`tenant_domains`: independent
+  `verification_status` DNS fact + `status` operator choice; host normalization with
+  IDN→ASCII, port/dot stripping, IP-literal/wildcard rejection) with DNS-TXT verification
+  via an injectable `DnsTxtLookup`.
+- Public and admin resolution profiles. Public resolution uses exact verified
+  domains before subdomain inference; admin resolution collects both header and JWT
+  candidates, rejects conflicting selectors, and accepts UUIDs only. A `soft` profile
+  variant resolves-if-possible without blocking, for routes whose authoritative gate is
+  deeper (e.g. signed blob views).
+- Neutral contract bridges for tenant lifecycle + memberships
+  (`TenantAdministration` — create lands in `provisioning`; final-active-owner protection
+  under row locks), domain administration (`TenantDomainAdministration` — including
+  pre-verified operator hosts and required-host protection while full resolution is ready),
+  activation-time host probes (`TenantResolutionProbe`), and the privileged
+  provisioning-context runner (`TenantProvisioningRunner` — the normal runner correctly
+  refuses non-active tenants; seeding a `provisioning` tenant uses this narrow seam).
+
+### Changed
+- Subdomain resolution now reads `tenancy.public_origin.base_domain`; the
+  duplicated `tenancy.subdomain.base_domain` key is retired.
+- Tenant middleware profiles remain inert until full-resolution readiness is
+  bound and ready, preserving bootstrap and single-tenant behavior.
+
+### Upgrade Notes
+- **`tenancy.subdomain.base_domain` is retired.** Set `tenancy.public_origin.base_domain`
+  instead (one shared source for activation, subdomain resolution, normalization, and host
+  policy). Installs that never configured `TENANCY_BASE_DOMAIN` are unaffected.
+- New migration `003_CreateTenantDomainsTable` runs on `migrate:run`; it is additive and
+  engine-portable.
+
 ## [1.1.0] - 2026-07-10
 
 **Theme: the neutral-contracts bridge layer + write-side stamping.** The extension now

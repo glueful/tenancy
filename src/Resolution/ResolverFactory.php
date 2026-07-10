@@ -7,6 +7,7 @@ namespace Glueful\Extensions\Tenancy\Resolution;
 use Glueful\Bootstrap\ApplicationContext;
 use Psr\Container\ContainerInterface;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\ActiveSessionResolver;
+use Glueful\Extensions\Tenancy\Resolution\Resolvers\DomainResolver;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\HeaderResolver;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\JwtClaimResolver;
 use Glueful\Extensions\Tenancy\Resolution\Resolvers\PathResolver;
@@ -29,7 +30,7 @@ final class ResolverFactory
      *
      * @var list<string>
      */
-    private const DEFAULT_ORDER = ['subdomain', 'path', 'header', 'query', 'jwt', 'active_session'];
+    private const DEFAULT_ORDER = ['domain', 'subdomain', 'path', 'header', 'query', 'jwt', 'active_session'];
 
     /**
      * Name → resolver class. Resolvers are stateless and constructor-arg-free.
@@ -37,6 +38,7 @@ final class ResolverFactory
      * @var array<string, class-string<TenantResolverInterface>>
      */
     private const MAP = [
+        'domain'         => DomainResolver::class,
         'subdomain'      => SubdomainResolver::class,
         'path'           => PathResolver::class,
         'header'         => HeaderResolver::class,
@@ -71,5 +73,26 @@ final class ResolverFactory
         }
 
         return new ResolverChain($resolvers);
+    }
+
+    /** @param list<string> $names */
+    public static function chainForNames(array $names): ResolverChain
+    {
+        $resolvers = [];
+        foreach ($names as $name) {
+            $class = self::MAP[$name] ?? null;
+            if ($class !== null) {
+                $resolvers[] = new $class();
+            }
+        }
+
+        return new ResolverChain($resolvers);
+    }
+
+    public static function resolver(string $name): ?TenantResolverInterface
+    {
+        $class = self::MAP[$name] ?? null;
+
+        return $class !== null ? new $class() : null;
     }
 }

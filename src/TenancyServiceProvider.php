@@ -12,11 +12,20 @@ use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
 use Glueful\Extensions\Contracts\Tenancy\TenantContextRunner;
 use Glueful\Extensions\Contracts\Tenancy\TenantEnforcementProbe;
 use Glueful\Extensions\Contracts\Tenancy\TenantProvisioner;
+use Glueful\Extensions\Contracts\Tenancy\TenantProvisioningRunner;
+use Glueful\Extensions\Contracts\Tenancy\TenantAdministration;
+use Glueful\Extensions\Contracts\Tenancy\TenantDomainAdministration;
+use Glueful\Extensions\Contracts\Tenancy\TenantResolutionProbe;
+use Glueful\Extensions\Contracts\Tenancy\TenantRequestMiddleware as TenantRequestMiddlewareContract;
 use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
 use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
 use Glueful\Extensions\Tenancy\Bridge\ContractEnforcementProbe;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantProvisioner;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantProvisioningRunner;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantAdministration;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantDomainAdministration;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolutionProbe;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantRunner;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
@@ -52,6 +61,10 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'autowire' => true,
                 'alias' => ['tenant'],
             ],
+            TenantRequestMiddlewareContract::class => [
+                'factory' => [self::class, 'makeTenantRequestMiddleware'],
+                'shared' => true,
+            ],
             CurrentTenantResolver::class => [
                 'class' => ContractTenantResolver::class,
                 'shared' => true,
@@ -71,6 +84,26 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
             ],
             TenantProvisioner::class => [
                 'class' => ContractTenantProvisioner::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TenantProvisioningRunner::class => [
+                'class' => ContractTenantProvisioningRunner::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TenantAdministration::class => [
+                'class' => ContractTenantAdministration::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TenantDomainAdministration::class => [
+                'class' => ContractTenantDomainAdministration::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TenantResolutionProbe::class => [
+                'class' => ContractTenantResolutionProbe::class,
                 'shared' => true,
                 'autowire' => true,
             ],
@@ -106,6 +139,12 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
     public function register(ApplicationContext $context): void
     {
         $this->mergeConfig('tenancy', require __DIR__ . '/../config/tenancy.php');
+    }
+
+    public static function makeTenantRequestMiddleware(
+        \Psr\Container\ContainerInterface $container
+    ): TenantRequestMiddlewareContract {
+        return $container->get(TenantMiddleware::class);
     }
 
     public function boot(ApplicationContext $context): void

@@ -2,8 +2,29 @@
 
 return [
     'enabled' => true,
-    'resolvers' => ['subdomain', 'path', 'header', 'query', 'jwt', 'active_session'], // ordered, first non-null wins
-    'subdomain' => ['base_domain' => env('TENANCY_BASE_DOMAIN')],
+    'resolvers' => ['domain', 'subdomain', 'path', 'header', 'query', 'jwt', 'active_session'],
+    'public_origin' => [
+        'scheme' => 'https',
+        'base_domain' => env('TENANCY_BASE_DOMAIN'),
+        'default_hosts' => [],
+        'reserved_labels' => ['www', 'api', 'admin'],
+    ],
+    'profiles' => [
+        'public' => [
+            'resolvers' => ['domain', 'subdomain'],
+            'require_membership' => false,
+            'require_authenticated' => false,
+            'uuid_only' => false,
+            'conflict' => 'ignore',
+        ],
+        'admin' => [
+            'resolvers' => ['header', 'jwt'],
+            'require_membership' => true,
+            'require_authenticated' => true,
+            'uuid_only' => true,
+            'conflict' => 'reject',
+        ],
+    ],
     'path'      => ['segment' => 't'],            // /t/{tenant}/...
     'header'    => ['name' => 'X-Tenant-Id'],
     'query'     => ['name' => 'tenant_id'],
