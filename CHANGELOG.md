@@ -6,6 +6,45 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-10
+
+**Theme: the neutral-contracts bridge layer + write-side stamping.** The extension now
+implements every `glueful/extension-contracts` tenancy seam, so host applications (and their
+enablement/retrofit flows) consume tenancy exclusively through interfaces — no concrete
+`Glueful\Extensions\Tenancy\*` imports — and builder inserts are stamped with the active
+tenant automatically.
+
+### Added
+- **Contract bridges** binding the neutral `glueful/extension-contracts` seams to the
+  extension's internals (implementers bind; consumers soft-resolve):
+  - `ContractTenantResolver` → `CurrentTenantResolver` and `ContractTableRegistry` →
+    `TenantTableRegistry` (registration without writing into this extension's config).
+  - `ContractTenantProvisioner` → `TenantProvisioner`: stands up the default tenant + active
+    owner membership, **idempotent by caller-supplied uuid** (crash-then-retry reuses the same
+    tenant); `hasAnyTenant()` detects pre-existing installs. The ONE place a consumer's
+    provisioning path crosses into the concrete `Tenant`/`TenantMembership` models.
+  - `ContractTenantRunner` → `TenantContextRunner`: run a callable as a given tenant, as the
+    system channel, or for each active tenant (seed/sync/background workers). Per-tenant
+    failures raise the new `TenantIterationException`, which carries the offending tenant uuid
+    so fail-fast callers can report exactly where iteration stopped.
+  - `ContractEnforcementProbe` → `TenantEnforcementProbe`: read-side view of the owned-table
+    registry (`isRegistered()`/`registeredTables()`) so a host's finalization gate can PROVE
+    every owned table is registered in the serving process.
+- **Write-side tenant stamping.** `TenantInsertStamper` registers via the framework's new
+  `Connection::addInsertHook()` (1.67.0) so every builder `insert()`/`insertBatch()`/`upsert()`
+  into a registered tenant-owned table is stamped with the active tenant's `tenant_uuid` in one
+  place. No `CurrentContext` (migrations/boot/CLI outside `runAsTenant`) is a documented
+  pass-through; the read guard still rejects cross-tenant values.
+
+### Fixed
+- **Aliased tenant-owned reads are now scoped.** The read table-hook resolves `table('x AS y')`
+  to the real table before the owned check and qualifies the predicate with the alias, so an
+  aliased primary table can no longer slip past auto-injection.
+
+### Changed
+- Dependency floors: `glueful/extension-contracts` `^1.1.0` (the enablement seams);
+  framework `>=1.67.0` (`Connection::addInsertHook` / seam APIs).
+
 ## [1.0.2] - 2026-06-16
 
 ### Fixed
