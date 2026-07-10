@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Glueful\Extensions\Tenancy\Tests\Integration\Bridge;
 
 use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
+use Glueful\Extensions\Contracts\Tenancy\TenantEnforcementProbe;
 use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
+use Glueful\Extensions\Tenancy\Bridge\ContractEnforcementProbe;
 use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\TenantContext;
@@ -45,11 +47,22 @@ final class ContractsBridgeTest extends TenancyTestCase
         self::assertTrue(TenantTableRegistry::isTenantOwned('commerce_products'));
     }
 
+    public function testEnforcementProbeReadsTheBackstop(): void
+    {
+        TenantTableRegistry::register('content_entries');
+        $probe = new ContractEnforcementProbe();
+
+        self::assertTrue($probe->isRegistered('content_entries'));
+        self::assertFalse($probe->isRegistered('system_flags'));
+        self::assertSame(['content_entries'], $probe->registeredTables());
+    }
+
     public function testProviderBindsContractIds(): void
     {
         $services = TenancyServiceProvider::services();
 
         self::assertSame(ContractTenantResolver::class, $services[CurrentTenantResolver::class]['class'] ?? null);
         self::assertSame(ContractTableRegistry::class, $services[TenantTableRegistryContract::class]['class'] ?? null);
+        self::assertSame(ContractEnforcementProbe::class, $services[TenantEnforcementProbe::class]['class'] ?? null);
     }
 }
