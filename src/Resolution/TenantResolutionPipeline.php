@@ -40,11 +40,17 @@ final class TenantResolutionPipeline
      * @throws TenantNotFoundException     no candidate (when required) | unknown | inactive tenant
      * @throws TenantAccessDeniedException authenticated non-member without bypass
      */
-    public function resolve(Request $request, ApplicationContext $context, bool $required): void
-    {
+    public function resolve(
+        Request $request,
+        ApplicationContext $context,
+        bool $required,
+        ?ResolutionProfile $profile = null
+    ): void {
         $tc = new TenantContext($context);
 
-        $candidate = $this->chain->resolve($request, $context);
+        $candidate = $profile === null
+            ? $this->chain->resolve($request, $context)
+            : $this->profileCandidate($request, $context, $profile);
 
         if ($candidate === null) {
             if ($required) {
@@ -55,9 +61,9 @@ final class TenantResolutionPipeline
             return;
         }
 
-        // Dual lookup: candidates may be a stable uuid or a human-facing slug.
+        // Legacy/public candidates may be a stable uuid or a human-facing slug.
         $tenant = Tenant::query($context)->where('uuid', $candidate)->first();
-        if ($tenant === null) {
+        if ($tenant === null && !($profile?->uuidOnly ?? false)) {
             $tenant = Tenant::query($context)->where('slug', $candidate)->first();
         }
         if ($tenant === null) {
@@ -71,11 +77,20 @@ final class TenantResolutionPipeline
 
         $userUuid = $request->attributes->get('auth.user.uuid');
 
+        $requireAuthenticated = $profile?->requireAuthenticated
+            ?? (bool) \config($context, 'tenancy.enforcement.require_authenticated', true);
+        $requireMembership = $profile?->requireMembership ?? true;
+
         if ($userUuid === null) {
-            if ((bool) \config($context, 'tenancy.enforcement.require_authenticated', true) === true) {
+            if ($requireAuthenticated) {
                 throw new TenantAccessDeniedException('Authentication is required to select a tenant');
             }
 
+            $tc->setTenant($tenant);
+            return;
+        }
+
+        if (!$requireMembership) {
             $tc->setTenant($tenant);
             return;
         }
@@ -96,5 +111,21 @@ final class TenantResolutionPipeline
         }
 
         $tc->setTenant($tenant);
+    }
+
+    private function profileCandidate(
+        Request $request,
+        ApplicationContext $context,
+        ResolutionProfile $profile
+    ): ?string {
+        if ($profile->conflictReject) {
+            $header = ResolverFactory::resolver('header')?->resolve($request, $context);
+            $jwt = ResolverFactory::resolver('jwt')?->resolve($request, $context);
+            if ($header !== null && $header !== '' && $jwt !== null && $jwt !== '' && $header !== $jwt) {
+                throw new TenantAccessDeniedException('Conflicting tenant selectors');
+            }
+        }
+
+        return ResolverFactory::chainForNames($profile->resolvers)->resolve($request, $context);
     }
 }

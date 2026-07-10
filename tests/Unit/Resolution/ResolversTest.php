@@ -48,7 +48,7 @@ final class ResolversTest extends TestCase
     {
         $resolver = new SubdomainResolver();
         $context = $this->context();
-        $context->mergeConfigDefaults('tenancy', ['subdomain' => ['base_domain' => 'app.com']]);
+        $context->mergeConfigDefaults('tenancy', ['public_origin' => ['base_domain' => 'app.com']]);
 
         $populated = Request::create('http://acme.app.com/');
         $this->assertSame('acme', $resolver->resolve($populated, $context));
