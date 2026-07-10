@@ -135,6 +135,39 @@ final class AutoInjectionTest extends TenancyTestCase
         }
     }
 
+    public function testAliasedRegisteredTableIsAutoScoped(): void
+    {
+        // "invoices as inv" must resolve to the owned `invoices` table and inject the predicate
+        // qualified by the ALIAS (`inv.tenant_uuid`), not the bare table name — else the read is
+        // either left unscoped (guard fail-closes) or emits an invalid `invoices.tenant_uuid`
+        // reference against an aliased FROM clause.
+        TenantTableRegistry::register('invoices');
+        $this->activate($this->tenantA);
+
+        $rows = $this->connection()->table('invoices as inv')->get();
+
+        self::assertCount(2, $rows);
+        foreach ($rows as $row) {
+            self::assertSame($this->tenantA->uuid, $row['tenant_uuid']);
+        }
+    }
+
+    public function testAliasedJoinKeepsPrimaryTableScoped(): void
+    {
+        // Aliased primary owned table joined to another tenant_uuid-carrying table: the alias-qualified
+        // predicate (`inv.tenant_uuid`) keeps the primary scoped and the join unambiguous.
+        TenantTableRegistry::register('invoices');
+        $this->activate($this->tenantA);
+
+        $rows = $this->connection()->table('invoices as inv')
+            ->join('customers as c', 'inv.tenant_uuid', '=', 'c.tenant_uuid')
+            ->select(['inv.uuid', 'c.name'])
+            ->get();
+
+        self::assertCount(2, $rows);
+        self::assertSame(['alice'], array_values(array_unique(array_column($rows, 'name'))));
+    }
+
     public function testUnregisteredTableIsNotScoped(): void
     {
         // invoices NOT registered here; query widgets which is never registered.

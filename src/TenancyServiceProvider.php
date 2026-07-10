@@ -8,10 +8,21 @@ use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\Connection;
 use Glueful\Database\Execution\QueryExecutor;
 use Glueful\Database\Migrations\MigrationPriority;
+use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
+use Glueful\Extensions\Contracts\Tenancy\TenantContextRunner;
+use Glueful\Extensions\Contracts\Tenancy\TenantEnforcementProbe;
+use Glueful\Extensions\Contracts\Tenancy\TenantProvisioner;
+use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
+use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
+use Glueful\Extensions\Tenancy\Bridge\ContractEnforcementProbe;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantProvisioner;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantRunner;
+use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
 use Glueful\Extensions\Tenancy\Models\Tenant;
+use Glueful\Extensions\Tenancy\Query\TenantInsertStamper;
 use Glueful\Extensions\Tenancy\Query\TenantQueryGuard;
 use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
 use Glueful\Extensions\Tenancy\Resolution\ResolverChain;
@@ -40,6 +51,28 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'shared' => true,
                 'autowire' => true,
                 'alias' => ['tenant'],
+            ],
+            CurrentTenantResolver::class => [
+                'class' => ContractTenantResolver::class,
+                'shared' => true,
+            ],
+            TenantTableRegistryContract::class => [
+                'class' => ContractTableRegistry::class,
+                'shared' => true,
+            ],
+            TenantEnforcementProbe::class => [
+                'class' => ContractEnforcementProbe::class,
+                'shared' => true,
+            ],
+            TenantContextRunner::class => [
+                'class' => ContractTenantRunner::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TenantProvisioner::class => [
+                'class' => ContractTenantProvisioner::class,
+                'shared' => true,
+                'autowire' => true,
             ],
             RowLevelStrategy::class => [
                 'class' => RowLevelStrategy::class,
@@ -105,6 +138,11 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 // access to tenant-owned tables that the auto-injection hook never saw. Registered
                 // via the CHAINABLE interceptor seam so host/other interceptors still run.
                 QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
+
+                // Write-side stamper: fill tenant_uuid on builder inserts into owned tables — the
+                // symmetric counterpart to the read table-hook above. Requires the framework's
+                // Connection::addInsertHook seam (pinned at release).
+                Connection::addInsertHook(TenantInsertStamper::hook());
             }
         } catch (\Throwable $e) {
             error_log('[Tenancy] Failed to register tenant enforcement: ' . $e->getMessage());
@@ -136,7 +174,14 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
     public static function registerTableHook(): void
     {
         Connection::addTableHook(static function ($qb, string $table, $conn): void {
-            if (!TenantTableRegistry::isTenantOwned($table)) {
+            // Accept aliased primary-table references ("posts as p" / "posts p"): resolve the REAL
+            // owned table for the ownership check, but qualify the predicate by the ALIAS the query
+            // actually uses. Injecting `posts.tenant_uuid` when the FROM clause aliases the table as
+            // `p` is an invalid reference; and without alias-parsing the ownership check would miss
+            // the table entirely, leaving the read unscoped for the guard to fail-close.
+            [$realTable, $alias] = self::splitTableAlias($table);
+
+            if (!TenantTableRegistry::isTenantOwned($realTable)) {
                 return;
             }
 
@@ -156,10 +201,29 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 return;
             }
 
-            // Qualify the primary-table predicate so joined reads against another table
-            // carrying tenant_uuid do not become ambiguous.
-            $qb->where($table . '.tenant_uuid', $tenant->uuid);
+            // Qualify the primary-table predicate by the alias (defaults to the table name) so joined
+            // reads against another table carrying tenant_uuid do not become ambiguous, and aliased
+            // FROM clauses remain valid SQL.
+            $qb->where($alias . '.tenant_uuid', $tenant->uuid);
         });
+    }
+
+    /**
+     * Split a builder table reference into its real table name and the alias the query uses.
+     * "posts as p" and "posts p" both yield ['posts', 'p']; a bare "posts" yields ['posts', 'posts'].
+     * A reference that is not a simple `<table> [as] <alias>` pair is returned unchanged as its own
+     * alias, so the ownership check simply no-ops on it.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private static function splitTableAlias(string $table): array
+    {
+        $trimmed = trim($table);
+        if (preg_match('/^(\S+)\s+(?:as\s+)?(\S+)$/i', $trimmed, $matches) === 1) {
+            return [$matches[1], $matches[2]];
+        }
+
+        return [$trimmed, $trimmed];
     }
 
     /**
