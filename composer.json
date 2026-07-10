@@ -19,7 +19,7 @@
     "prefer-stable": true,
     "require": {
         "php": "^8.3",
-        "glueful/extension-contracts": "^1.1.0"
+        "glueful/extension-contracts": "^1.2.0"
     },
     "require-dev": {
         "glueful/framework": "^1.67.0",
@@ -55,7 +55,7 @@
             "name": "Tenancy",
             "displayName": "Tenancy",
             "description": "Shared-database, row-level multi-tenancy for Glueful.",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "categories": [
                 "multi-tenancy",
                 "security"
