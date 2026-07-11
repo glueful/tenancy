@@ -33,6 +33,8 @@ class CreateTenantsTable implements MigrationInterface
             $table->timestamp('created_at')->default('CURRENT_TIMESTAMP');
             $table->timestamp('updated_at')->default('CURRENT_TIMESTAMP');
             $table->timestamp('deleted_at')->nullable();
+            $table->string('deleted_from_status', 32)->nullable();
+            $table->timestamp('purge_after')->nullable();
 
             $table->unique('uuid');
             $table->unique('slug');

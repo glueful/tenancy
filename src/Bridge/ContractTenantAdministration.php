@@ -6,7 +6,16 @@ namespace Glueful\Extensions\Tenancy\Bridge;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Extensions\Contracts\Tenancy\TenantAdministration;
+use Glueful\Events\EventService;
+use Glueful\Events\Contracts\BaseEvent;
+use Glueful\Extensions\Tenancy\Cooldown\ReleasedHostRepository;
+use Glueful\Extensions\Tenancy\Events\HostReleased;
+use Glueful\Extensions\Tenancy\Events\TenantDeleted;
+use Glueful\Extensions\Tenancy\Events\TenantRestored;
+use Glueful\Extensions\Tenancy\Exceptions\FinalWorkspaceException;
 use Glueful\Extensions\Tenancy\Exceptions\InvalidHostException;
+use Glueful\Extensions\Tenancy\Exceptions\RequiredHostOwnedException;
+use Glueful\Extensions\Tenancy\Exceptions\TenantLifecycleException;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Models\TenantMembership;
 use Glueful\Extensions\Tenancy\Resolution\HostNormalizer;
@@ -15,6 +24,11 @@ use Glueful\Helpers\Utils;
 final class ContractTenantAdministration implements TenantAdministration
 {
     private const SLUG_PATTERN = '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/';
+
+    public function __construct(
+        private readonly ReleasedHostRepository $cooldown = new ReleasedHostRepository(),
+    ) {
+    }
 
     public function create(
         ApplicationContext $c,
@@ -69,17 +83,17 @@ final class ContractTenantAdministration implements TenantAdministration
 
     public function listTenants(ApplicationContext $c, ?string $status = null): array
     {
-        $query = Tenant::query($c)->orderBy('created_at', 'asc')->orderBy('uuid', 'asc');
-        if ($status !== null) {
-            $query->where('status', $status);
+        $allowed = ['provisioning', 'active', 'suspended', 'deleted', 'purging'];
+        if ($status !== null && !in_array($status, $allowed, true)) {
+            throw new \InvalidArgumentException('Unknown tenant status.');
         }
+        $sql = 'SELECT uuid,slug,name,status,deleted_at,deleted_from_status,purge_after '
+            . 'FROM tenants' . ($status === null ? '' : ' WHERE status=?')
+            . ' ORDER BY created_at ASC,uuid ASC';
+        $stmt = db($c)->getPDO()->prepare($sql);
+        $stmt->execute($status === null ? [] : [$status]);
 
-        $result = [];
-        foreach ($query->get() as $tenant) {
-            $result[] = $this->tenantProjection($tenant);
-        }
-
-        return $result;
+        return array_values($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     public function getTenant(ApplicationContext $c, string $tenantUuid): ?array
@@ -87,6 +101,119 @@ final class ContractTenantAdministration implements TenantAdministration
         $tenant = Tenant::query($c)->where('uuid', $tenantUuid)->first();
 
         return $tenant === null ? null : $this->tenantProjection($tenant);
+    }
+
+    public function getTenantLifecycle(ApplicationContext $c, string $tenantUuid): ?array
+    {
+        $stmt = db($c)->getPDO()->prepare(
+            'SELECT uuid,slug,name,status,deleted_at,deleted_from_status,purge_after '
+            . 'FROM tenants WHERE uuid=?'
+        );
+        $stmt->execute([$tenantUuid]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    public function deleteTenant(ApplicationContext $c, string $tenantUuid): void
+    {
+        db($c)->transaction(function () use ($c, $tenantUuid): void {
+            $this->assertNotFinalWorkspace($c, $tenantUuid);
+            $prior = $this->lockTenantStatus($c, $tenantUuid);
+            if (!in_array($prior, ['active', 'suspended'], true)) {
+                throw new TenantLifecycleException('deleteTenant requires an active or suspended tenant.');
+            }
+            $this->assertNotRequiredHostOwner($c, $tenantUuid);
+            $days = (int) config($c, 'tenancy.tenants.trash_retention_days', 30);
+            $now = gmdate('Y-m-d H:i:s');
+            $purgeAfter = gmdate('Y-m-d H:i:s', time() + ($days * 86400));
+            $changed = db($c)->table('tenants')->where('uuid', $tenantUuid)
+                ->where('status', $prior)->update([
+                    'status' => 'deleted',
+                    'deleted_at' => $now,
+                    'deleted_from_status' => $prior,
+                    'purge_after' => $purgeAfter,
+                    'updated_at' => $now,
+                ]);
+            if ($changed !== 1) {
+                throw new TenantLifecycleException('deleteTenant lost the status race.');
+            }
+            $this->afterCommit($c, new TenantDeleted($tenantUuid, $prior, $purgeAfter));
+        });
+    }
+
+    public function restoreTenant(ApplicationContext $c, string $tenantUuid): void
+    {
+        db($c)->transaction(function () use ($c, $tenantUuid): void {
+            $row = $this->lockTenantLifecycle($c, $tenantUuid);
+            $restoreTo = (string) ($row['deleted_from_status'] ?? '');
+            if (
+                ($row['status'] ?? null) !== 'deleted'
+                || !in_array($restoreTo, ['active', 'suspended'], true)
+                || !is_string($row['purge_after'] ?? null)
+                || (string) $row['purge_after'] < gmdate('Y-m-d H:i:s')
+            ) {
+                throw new TenantLifecycleException('Tenant is not restorable.');
+            }
+            $changed = db($c)->table('tenants')->where('uuid', $tenantUuid)
+                ->where('status', 'deleted')->update([
+                    'status' => $restoreTo,
+                    'deleted_at' => null,
+                    'deleted_from_status' => null,
+                    'purge_after' => null,
+                    'updated_at' => gmdate('Y-m-d H:i:s'),
+                ]);
+            if ($changed !== 1) {
+                throw new TenantLifecycleException('restoreTenant lost the status race.');
+            }
+            $this->afterCommit($c, new TenantRestored($tenantUuid, $restoreTo));
+        });
+    }
+
+    public function beginPurge(ApplicationContext $c, string $tenantUuid): void
+    {
+        db($c)->transaction(function () use ($c, $tenantUuid): void {
+            if ($this->lockTenantStatus($c, $tenantUuid) !== 'deleted') {
+                throw new TenantLifecycleException('beginPurge requires a deleted tenant.');
+            }
+            $changed = db($c)->table('tenants')->where('uuid', $tenantUuid)
+                ->where('status', 'deleted')->update([
+                    'status' => 'purging', 'updated_at' => gmdate('Y-m-d H:i:s'),
+                ]);
+            if ($changed !== 1) {
+                throw new TenantLifecycleException('beginPurge lost the status race.');
+            }
+        });
+    }
+
+    public function purgeTenantRecord(ApplicationContext $c, string $tenantUuid): void
+    {
+        db($c)->transaction(function () use ($c, $tenantUuid): void {
+            if ($this->lockTenantStatus($c, $tenantUuid) !== 'purging') {
+                throw new TenantLifecycleException('purgeTenantRecord requires a purging tenant.');
+            }
+            $stmt = db($c)->getPDO()->prepare(
+                'SELECT host FROM tenant_domains WHERE tenant_uuid=? ORDER BY host'
+            );
+            $stmt->execute([$tenantUuid]);
+            $hosts = array_values(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+            $this->cooldown->lockHosts($c, $hosts);
+            $days = (int) config($c, 'tenancy.domains.release_cooldown_days', 30);
+            $retainedUntil = gmdate('Y-m-d H:i:s', time() + ($days * 86400));
+            foreach ($hosts as $host) {
+                $this->cooldown->upsertTombstone($c, $host, $tenantUuid, $retainedUntil);
+            }
+            db($c)->table('tenant_domains')->where('tenant_uuid', $tenantUuid)->forceDelete();
+            db($c)->table('tenant_memberships')->where('tenant_uuid', $tenantUuid)->forceDelete();
+            $deleted = db($c)->table('tenants')->where('uuid', $tenantUuid)
+                ->where('status', 'purging')->forceDelete();
+            if ($deleted !== 1) {
+                throw new TenantLifecycleException('purgeTenantRecord lost the status race.');
+            }
+            foreach ($hosts as $host) {
+                $this->afterCommit($c, new HostReleased($host, $tenantUuid, $retainedUntil));
+            }
+        });
     }
 
     public function listTenantsForUser(ApplicationContext $c, string $userUuid): array
@@ -195,6 +322,77 @@ final class ContractTenantAdministration implements TenantAdministration
         if ($changed === 0) {
             throw new \RuntimeException($message);
         }
+    }
+
+    private function lockTenantStatus(ApplicationContext $c, string $tenantUuid): ?string
+    {
+        $row = $this->lockTenantLifecycle($c, $tenantUuid);
+
+        return is_string($row['status'] ?? null) ? $row['status'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    private function lockTenantLifecycle(ApplicationContext $c, string $tenantUuid): array
+    {
+        $sql = 'SELECT uuid,status,deleted_at,deleted_from_status,purge_after '
+            . 'FROM tenants WHERE uuid=?';
+        if (db($c)->getDriverName() !== 'sqlite') {
+            $sql .= ' FOR UPDATE';
+        }
+        $stmt = db($c)->getPDO()->prepare($sql);
+        $stmt->execute([$tenantUuid]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? [] : $row;
+    }
+
+    private function assertNotFinalWorkspace(ApplicationContext $c, string $tenantUuid): void
+    {
+        $sql = "SELECT uuid FROM tenants WHERE status IN ('provisioning','active','suspended') "
+            . 'AND deleted_at IS NULL ORDER BY uuid';
+        if (db($c)->getDriverName() !== 'sqlite') {
+            $sql .= ' FOR UPDATE';
+        }
+        $rows = db($c)->getPDO()->query($sql)->fetchAll(\PDO::FETCH_COLUMN);
+        if (count($rows) <= 1 && in_array($tenantUuid, $rows, true)) {
+            throw new FinalWorkspaceException('Cannot delete the final workspace.');
+        }
+    }
+
+    private function assertNotRequiredHostOwner(ApplicationContext $c, string $tenantUuid): void
+    {
+        $configured = config($c, 'tenancy.public_origin.default_hosts', []);
+        $required = [];
+        foreach (is_array($configured) ? $configured : [] as $host) {
+            if (is_string($host) && trim($host) !== '') {
+                $required[HostNormalizer::normalize($host)] = true;
+            }
+        }
+        if ($required === []) {
+            return;
+        }
+        $stmt = db($c)->getPDO()->prepare('SELECT host FROM tenant_domains WHERE tenant_uuid=?');
+        $stmt->execute([$tenantUuid]);
+        $owned = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $host) {
+            $host = HostNormalizer::normalize((string) $host);
+            if (isset($required[$host])) {
+                $owned[] = $host;
+            }
+        }
+        if ($owned !== []) {
+            throw new RequiredHostOwnedException($owned);
+        }
+    }
+
+    private function afterCommit(ApplicationContext $c, BaseEvent $event): void
+    {
+        db($c)->afterCommit(static function () use ($c, $event): void {
+            $container = $c->getContainer();
+            if ($container->has(EventService::class)) {
+                $container->get(EventService::class)->dispatch($event);
+            }
+        });
     }
 
     private function assertSlugAvailable(ApplicationContext $c, string $slug): void

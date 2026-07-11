@@ -7,12 +7,11 @@ namespace Glueful\Extensions\Tenancy\Resolution;
 /** Injectable DNS TXT lookup used by domain verification. */
 class DnsTxtLookup
 {
-    /** @return list<string> */
-    public function lookup(string $name): array
+    public function lookupStructured(string $name): DnsTxtResult
     {
         $records = dns_get_record($name, DNS_TXT);
-        if (!is_array($records)) {
-            return [];
+        if ($records === false) {
+            return new DnsTxtResult('error');
         }
 
         $values = [];
@@ -23,6 +22,12 @@ class DnsTxtLookup
             }
         }
 
-        return $values;
+        return new DnsTxtResult('success', $values);
+    }
+
+    /** @return list<string> */
+    public function lookup(string $name): array
+    {
+        return $this->lookupStructured($name)->records;
     }
 }

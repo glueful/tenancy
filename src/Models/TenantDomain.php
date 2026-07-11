@@ -11,6 +11,7 @@ class TenantDomain extends Model
 {
     public const VERIFICATION_PENDING = 'pending';
     public const VERIFICATION_VERIFIED = 'verified';
+    public const VERIFICATION_REVOKED = 'revoked';
     public const STATUS_ACTIVE = 'active';
     public const STATUS_DISABLED = 'disabled';
 
