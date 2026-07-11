@@ -29,6 +29,7 @@ use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolutionProbe;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantRunner;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
+use Glueful\Extensions\Tenancy\Cooldown\ReleasedHostRepository;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Query\TenantInsertStamper;
@@ -99,6 +100,11 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
             ],
             TenantDomainAdministration::class => [
                 'class' => ContractTenantDomainAdministration::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            ReleasedHostRepository::class => [
+                'class' => ReleasedHostRepository::class,
                 'shared' => true,
                 'autowire' => true,
             ],

@@ -12,6 +12,7 @@ use Glueful\Helpers\Utils;
 use Glueful\Migrations\CreateTenantMembershipsTable;
 use Glueful\Migrations\CreateTenantDomainsTable;
 use Glueful\Migrations\CreateTenantsTable;
+use Glueful\Migrations\CreateReleasedHostsTable;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 
@@ -43,6 +44,7 @@ abstract class TenancyTestCase extends TestCase
         (new CreateTenantsTable())->up($schema);
         (new CreateTenantMembershipsTable())->up($schema);
         (new CreateTenantDomainsTable())->up($schema);
+        (new CreateReleasedHostsTable())->up($schema);
 
         $connection = $this->connection;
         $container = new class ($connection) implements ContainerInterface {

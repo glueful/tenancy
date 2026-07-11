@@ -8,6 +8,7 @@ use Glueful\Extensions\Tenancy\Bridge\ContractTenantDomainAdministration;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolutionProbe;
 use Glueful\Extensions\Tenancy\Models\TenantDomain;
 use Glueful\Extensions\Tenancy\Resolution\DnsTxtLookup;
+use Glueful\Extensions\Tenancy\Resolution\DnsTxtResult;
 use Glueful\Extensions\Tenancy\Tests\Support\TenancyTestCase;
 
 final class TenantDomainAdministrationTest extends TenancyTestCase
@@ -25,9 +26,9 @@ final class TenantDomainAdministrationTest extends TenancyTestCase
             /** @var list<string> */
             public array $records = [];
 
-            public function lookup(string $name): array
+            public function lookupStructured(string $name): DnsTxtResult
             {
-                return $this->records;
+                return new DnsTxtResult('success', $this->records);
             }
         };
         $admin = new ContractTenantDomainAdministration($dns);
