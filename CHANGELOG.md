@@ -6,6 +6,51 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-11
+
+**Theme: closing the workspace lifecycle loop** — reversible two-phase workspace deletion, a
+host-cooldown ledger that stops a freed custom domain from being silently reclaimed, and background
+re-verification that revokes a verified domain whose DNS proof has drifted. All identity/domain
+transitions stay behind neutral contracts, dispatch framework events after commit, and leave
+single-tenant and bootstrap installs untouched.
+
+### Added
+- Two-phase workspace deletion (`deleteTenant` → `restoreTenant` / `beginPurge` →
+  `purgeTenantRecord`): guarded status transitions that refuse the final workspace or one owning a
+  required default host, persist the prior status + a restore deadline (`deleted_from_status` /
+  `purge_after`, folded into `001`), and hard-delete the tenant record in a single transaction that
+  tombstones every host rather than relying on FK cascade.
+- Host-cooldown ledger (`004_CreateReleasedHostsTable`): a released custom host is tombstoned for a
+  configurable cooldown so a different tenant cannot immediately reclaim it. Per-host advisory locking
+  serializes claim/release/reclaim; the releasing tenant may reclaim immediately; a superuser may
+  override via an atomic override-and-claim. `removeDomain()` and the final purge both route through
+  the cooldown-aware release.
+- Background domain re-verification: verified custom domains are periodically re-proven via DNS TXT.
+  Drift is counted, and a domain is revoked only after **both** a failure threshold and a grace
+  duration are exceeded (`verification_status = revoked` stops resolution while leaving the operator's
+  enable/disable `status` untouched); recovered proof restores it. Adds folded `003` tracking columns
+  (`last_checked_at`, `last_check_status`, `consecutive_failures`, `first_failure_at`) + a sweep index,
+  a structured `DnsTxtResult`, and `reverifyDomain()` with a snapshot → DNS-outside-lock → guarded
+  apply sequence.
+- After-commit events: `TenantDeleted`, `TenantRestored`, `HostReleased`, `DomainReverificationFailed`,
+  `DomainRevoked`, `DomainReverified` (framework `BaseEvent`; the verification token never appears in a
+  payload).
+
+### Changed
+- `removeDomain()` now delegates to the cooldown-aware `releaseDomain()` — there is no public
+  hard-delete path that bypasses the cooldown ledger.
+- `verifyDomain()` is pending-only (verified/revoked domains use the re-verification lifecycle) and
+  moves to the structured DNS lookup so lifecycle decisions never use the lossy list wrapper.
+
+### Upgrade Notes
+- Requires `glueful/extension-contracts ^1.3.0`.
+- New migration `004_CreateReleasedHostsTable` runs on `migrate:run`.
+- `001_CreateTenantsTable` and `003_CreateTenantDomainsTable` gain folded columns + a re-verification
+  index. This is a pre-launch fold (fresh installs get the columns directly); no ALTER migration is
+  shipped for already-migrated databases.
+- New configuration under `tenancy.domains.*` (release cooldown + re-verification) and
+  `tenancy.tenants.*` (trash retention + auto-purge, default off). All have safe defaults.
+
 ## [1.2.0] - 2026-07-10
 
 **Theme: the tenant identity surface** — verified custom domains, resolver profiles for
