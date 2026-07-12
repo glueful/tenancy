@@ -55,7 +55,7 @@
             "name": "Tenancy",
             "displayName": "Tenancy",
             "description": "Shared-database, row-level multi-tenancy for Glueful.",
-            "version": "1.3.0",
+            "version": "2.0.0",
             "categories": [
                 "multi-tenancy",
                 "security"

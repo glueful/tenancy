@@ -6,6 +6,54 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-12
+
+**Theme: the provider split** — tenancy's identity/administration control-plane becomes always-on
+while request enforcement becomes an explicitly activated provider, and membership role validation
+becomes a host-extensible, lock-protected seam.
+
+### Added
+- `TenancyControlPlaneProvider` — the always-on control plane. Owns the identity migrations
+  (loaded at `MigrationPriority::DEFAULT - 50`), the `TenantProvisioner`,
+  `TenantProvisioningRunner`, `TenantAdministration`, `TenantDomainAdministration`, and
+  `TenantContextRunner` contract bindings, `ReleasedHostRepository`, the `tenant:*` console
+  commands, and the `tenancy` config defaults. Binding presence here answers "is this service
+  available?" — never "is tenant enforcement active?" (that signal belongs to the host).
+- `MembershipRoleAuthority` + `MembershipRoleLock` — engine-local seams for membership role
+  validation and per-(tenant, role) serialization, with back-compatible defaults bound in the
+  control-plane provider: `ConfigRoleAuthority` (byte-identical to the previous
+  `tenancy.membership.roles` allowlist check) and `AdvisoryMembershipRoleLock`
+  (transaction-scoped advisory locks). Hosts may bind their own authority (e.g. per-tenant
+  custom roles) without forking the bridge.
+- Locked membership mutations: `addMember()`/`setMemberRole()` now run
+  `BEGIN → lock → isAssignable() → re-read → write → COMMIT`. Role **changes** lock the source
+  and destination role keys in canonical sorted order and re-read the membership after lock
+  acquisition; new memberships lock only the destination and retry once on a unique-violation
+  race. Persistent concurrent conflicts throw `MembershipRoleConflictException`.
+
+### Changed
+- `TenancyServiceProvider` is now **enforcement-only**: the resolver chain/pipeline and profiles,
+  tenant request middleware, table registry, enforcement/resolution probes, strategy, and the
+  runtime hooks. Its `boot()` hooks (table hook, query guard, insert stamper, registry load)
+  register **unconditionally** — the `config('tenancy.enabled')` gate is removed; provider
+  presence now means "enforcement machinery loaded".
+- `assertRole()` is replaced by the `MembershipRoleAuthority` seam (the default binding preserves
+  the exact previous behavior and error message).
+
+### Upgrade Notes (BREAKING)
+- **Hosts must register `Glueful\Extensions\Tenancy\TenancyControlPlaneProvider` in
+  `config/serviceproviders.php`** (the always-loaded application provider list). It cannot be
+  managed by `extensions:enable` — the extension manifest permits one provider per package, and
+  that slot belongs to the enforcement provider. Without the control-plane provider there are no
+  identity migrations and no provisioning/administration services.
+- Registering `TenancyServiceProvider` now loads enforcement unconditionally. Hosts gate
+  enforcement by **registration** — adding/removing the provider from `config/extensions.php` at
+  their persisted enablement transition — not by setting `tenancy.enabled` config.
+- Membership mutations serialize on per-(tenant, role) advisory locks and may throw
+  `MembershipRoleConflictException` under persistent concurrent role changes (map to HTTP 409).
+- Dependency pins are unchanged: `glueful/extension-contracts ^1.3.0`; framework floor
+  `>=1.67.0`.
+
 ## [1.3.0] - 2026-07-11
 
 **Theme: closing the workspace lifecycle loop** — reversible two-phase workspace deletion, a
