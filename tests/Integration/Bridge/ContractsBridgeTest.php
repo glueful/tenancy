@@ -6,6 +6,11 @@ namespace Glueful\Extensions\Tenancy\Tests\Integration\Bridge;
 
 use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
 use Glueful\Extensions\Contracts\Tenancy\TenantEnforcementProbe;
+use Glueful\Extensions\Contracts\Tenancy\TenantAdministration;
+use Glueful\Extensions\Contracts\Tenancy\TenantContextRunner;
+use Glueful\Extensions\Contracts\Tenancy\TenantDomainAdministration;
+use Glueful\Extensions\Contracts\Tenancy\TenantProvisioner;
+use Glueful\Extensions\Contracts\Tenancy\TenantProvisioningRunner;
 use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
 use Glueful\Extensions\Tenancy\Bridge\ContractEnforcementProbe;
 use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
@@ -13,6 +18,7 @@ use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\TenantContext;
 use Glueful\Extensions\Tenancy\Query\TenantTableRegistry;
 use Glueful\Extensions\Tenancy\TenancyServiceProvider;
+use Glueful\Extensions\Tenancy\TenancyControlPlaneProvider;
 use Glueful\Extensions\Tenancy\Tests\Support\TenancyTestCase;
 
 final class ContractsBridgeTest extends TenancyTestCase
@@ -64,5 +70,12 @@ final class ContractsBridgeTest extends TenancyTestCase
         self::assertSame(ContractTenantResolver::class, $services[CurrentTenantResolver::class]['class'] ?? null);
         self::assertSame(ContractTableRegistry::class, $services[TenantTableRegistryContract::class]['class'] ?? null);
         self::assertSame(ContractEnforcementProbe::class, $services[TenantEnforcementProbe::class]['class'] ?? null);
+
+        $control = TenancyControlPlaneProvider::services();
+        self::assertArrayHasKey(TenantProvisioner::class, $control);
+        self::assertArrayHasKey(TenantProvisioningRunner::class, $control);
+        self::assertArrayHasKey(TenantAdministration::class, $control);
+        self::assertArrayHasKey(TenantDomainAdministration::class, $control);
+        self::assertArrayHasKey(TenantContextRunner::class, $control);
     }
 }

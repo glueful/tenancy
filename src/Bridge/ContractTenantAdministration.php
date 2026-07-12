@@ -18,6 +18,11 @@ use Glueful\Extensions\Tenancy\Exceptions\RequiredHostOwnedException;
 use Glueful\Extensions\Tenancy\Exceptions\TenantLifecycleException;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Models\TenantMembership;
+use Glueful\Extensions\Tenancy\Membership\AdvisoryMembershipRoleLock;
+use Glueful\Extensions\Tenancy\Membership\ConfigRoleAuthority;
+use Glueful\Extensions\Tenancy\Membership\MembershipRoleAuthority;
+use Glueful\Extensions\Tenancy\Membership\MembershipRoleConflictException;
+use Glueful\Extensions\Tenancy\Membership\MembershipRoleLock;
 use Glueful\Extensions\Tenancy\Resolution\HostNormalizer;
 use Glueful\Helpers\Utils;
 
@@ -27,6 +32,8 @@ final class ContractTenantAdministration implements TenantAdministration
 
     public function __construct(
         private readonly ReleasedHostRepository $cooldown = new ReleasedHostRepository(),
+        private readonly MembershipRoleAuthority $roleAuthority = new ConfigRoleAuthority(),
+        private readonly MembershipRoleLock $roleLock = new AdvisoryMembershipRoleLock(),
     ) {
     }
 
@@ -255,25 +262,43 @@ final class ContractTenantAdministration implements TenantAdministration
         string $userUuid,
         string $role
     ): void {
-        $this->assertRole($c, $role);
-        db($c)->transaction(function () use ($c, $tenantUuid, $userUuid, $role): void {
-            $existing = TenantMembership::query($c)
-                ->where('tenant_uuid', $tenantUuid)
-                ->where('user_uuid', $userUuid)
-                ->first();
-            if ($existing === null) {
-                $existing = TenantMembership::create($c, [
-                    'uuid' => Utils::generateNanoID(12),
-                    'tenant_uuid' => $tenantUuid,
-                    'user_uuid' => $userUuid,
-                ]);
+        $attempt = 0;
+        while (true) {
+            try {
+                db($c)->transaction(function () use ($c, $tenantUuid, $userUuid, $role): void {
+                    $snapshot = $this->membership($c, $tenantUuid, $userUuid);
+                    $roles = $snapshot === null ? [$role] : [$role, (string) $snapshot->role];
+                    $this->roleLock->lockMany($c, $tenantUuid, $roles);
+                    $this->assertAssignable($c, $tenantUuid, $role);
+                    $current = $this->membership($c, $tenantUuid, $userUuid);
+                    $this->assertRoleStillLocked($current, $roles);
+                    if ($current === null) {
+                        $current = TenantMembership::create($c, [
+                            'uuid' => Utils::generateNanoID(12),
+                            'tenant_uuid' => $tenantUuid,
+                            'user_uuid' => $userUuid,
+                        ]);
+                    }
+                    db($c)->table('tenant_memberships')->where('uuid', $current->uuid)->update([
+                        'role' => $role,
+                        'status' => 'active',
+                        'updated_at' => gmdate('Y-m-d H:i:s'),
+                    ]);
+                });
+                return;
+            } catch (\Throwable $exception) {
+                if (!$this->isUniqueViolation($exception) || $attempt++ >= 1) {
+                    if ($this->isUniqueViolation($exception)) {
+                        throw new MembershipRoleConflictException(
+                            'Membership changed concurrently; retry.',
+                            0,
+                            $exception,
+                        );
+                    }
+                    throw $exception;
+                }
             }
-            db($c)->table('tenant_memberships')->where('uuid', $existing->uuid)->update([
-                'role' => $role,
-                'status' => 'active',
-                'updated_at' => gmdate('Y-m-d H:i:s'),
-            ]);
-        });
+        }
     }
 
     public function removeMember(ApplicationContext $c, string $tenantUuid, string $userUuid): void
@@ -293,8 +318,16 @@ final class ContractTenantAdministration implements TenantAdministration
         string $userUuid,
         string $role
     ): void {
-        $this->assertRole($c, $role);
         db($c)->transaction(function () use ($c, $tenantUuid, $userUuid, $role): void {
+            $snapshot = $this->membership($c, $tenantUuid, $userUuid);
+            $roles = $snapshot === null ? [$role] : [$role, (string) $snapshot->role];
+            $this->roleLock->lockMany($c, $tenantUuid, $roles);
+            $this->assertAssignable($c, $tenantUuid, $role);
+            $current = $this->membership($c, $tenantUuid, $userUuid);
+            $this->assertRoleStillLocked($current, $roles);
+            if ($current === null) {
+                throw new \RuntimeException('Tenant membership was not found.');
+            }
             if ($role !== 'owner') {
                 $this->assertNotFinalOwner($c, $tenantUuid, $userUuid);
             }
@@ -413,12 +446,40 @@ final class ContractTenantAdministration implements TenantAdministration
         }
     }
 
-    private function assertRole(ApplicationContext $c, string $role): void
+    private function assertAssignable(ApplicationContext $c, string $tenantUuid, string $role): void
     {
-        $roles = config($c, 'tenancy.membership.roles', ['owner', 'admin', 'member', 'viewer']);
-        if (!is_array($roles) || !in_array($role, $roles, true)) {
+        if (!$this->roleAuthority->isAssignable($c, $tenantUuid, $role)) {
             throw new \InvalidArgumentException('Unknown tenant membership role.');
         }
+    }
+
+    private function membership(
+        ApplicationContext $c,
+        string $tenantUuid,
+        string $userUuid,
+    ): ?TenantMembership {
+        return TenantMembership::query($c)
+            ->where('tenant_uuid', $tenantUuid)
+            ->where('user_uuid', $userUuid)
+            ->first();
+    }
+
+    /** @param list<string> $lockedRoles */
+    private function assertRoleStillLocked(?TenantMembership $membership, array $lockedRoles): void
+    {
+        if ($membership !== null && !in_array((string) $membership->role, $lockedRoles, true)) {
+            throw new MembershipRoleConflictException('Membership role changed concurrently; retry.');
+        }
+    }
+
+    private function isUniqueViolation(\Throwable $exception): bool
+    {
+        for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            if ((string) $current->getCode() === '23505') {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function assertNotFinalOwner(

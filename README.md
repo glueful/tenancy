@@ -25,23 +25,92 @@ many members. This is **logical isolation, not hard isolation** — see [Securit
 
 ```bash
 composer require glueful/tenancy
+```
+
+Tenancy uses two providers with intentionally different lifecycles:
+
+| Provider | Registration | Responsibility |
+| --- | --- | --- |
+| `TenancyControlPlaneProvider` | Always present in `config/serviceproviders.php` | Migrations, tenant provisioning, lifecycle/domain administration, context-running services, and tenancy commands |
+| `TenancyServiceProvider` | Enabled/disabled through `config/extensions.php` | Request resolution, middleware, table scoping, write stamping, and query enforcement |
+
+Add the control-plane provider to the application's static provider list:
+
+```php
+// config/serviceproviders.php
+return [
+    'enabled' => [
+        'Glueful\\Extensions\\Tenancy\\TenancyControlPlaneProvider',
+        // ...application providers
+    ],
+];
+```
+
+Then run the migrations. The control-plane provider registers the migrations that create the central
+tenant, membership, domain, and released-host tables.
+
+```bash
 php glueful migrate:run
 ```
 
-`migrate:run` applies the two migrations that create the `tenants` and `tenant_memberships`
-tables. If your app uses an explicit extension allow-list, enable it there:
+When the application is ready to enforce tenancy, enable the extension provider:
 
 ```bash
 php glueful extensions:enable Tenancy
 ```
 
-**Framework requirement:** `glueful/framework ^1.53.0`. The extension relies on framework seams shipped
-in **1.53.0** — the chainable `Connection::addTableHook()` / `QueryExecutor::addQueryInterceptor()`
-seams (so the tenancy hooks compose with host interceptors instead of replacing them) and the
-`Connection::class` container binding (the `tenant:*` commands resolve the database via `db()`). The
-tenant predicate is written **unqualified** (see [Automatic scoping](#automatic-scoping)) so it works on
-the framework's UPDATE/DELETE path **without** depending on the qualified-column validator fix. Earlier
-framework versions do not expose these seams and are not supported.
+Enabling adds `Glueful\Extensions\Tenancy\TenancyServiceProvider` to `config/extensions.php`. Its
+presence means enforcement is active: it registers the resolver, middleware, scoping hooks, stamper,
+and query guard. Disabling the extension removes that provider and therefore removes enforcement on the
+next application boot. The control plane remains available while enforcement is disabled.
+
+`extensions:enable` and `extensions:disable` manage only the manifest provider. They **cannot** add or
+remove `TenancyControlPlaneProvider` in `config/serviceproviders.php`.
+
+### Upgrading from the single-provider release
+
+Before deploying the provider-split release:
+
+1. Add `Glueful\Extensions\Tenancy\TenancyControlPlaneProvider` to
+   `config/serviceproviders.php`.
+2. Keep `Glueful\Extensions\Tenancy\TenancyServiceProvider` in
+   `config/extensions.php` if tenancy enforcement is currently active; remove it if enforcement should
+   remain off.
+3. Deploy the package update, rebuild the extension/container cache as required by the host, and run
+   `php glueful migrate:run`.
+4. Verify tenant administration and resolution before accepting traffic.
+
+Do not upgrade without the control-plane registration. The enforcement provider no longer owns
+migrations, default configuration, commands, or administration bindings, so loading it alone is an
+invalid deployment.
+
+The old `config('tenancy.enabled')` switch no longer suppresses enforcement while
+`TenancyServiceProvider` is loaded. Applications that previously kept the provider enabled and set
+`tenancy.enabled=false` must instead remove/disable the enforcement provider. Provider presence is the
+engine-level enforcement switch; a host application may maintain a separate persisted lifecycle state
+for transition orchestration.
+
+### Custom membership-role authority
+
+The control plane validates membership roles through `MembershipRoleAuthority`. By default,
+`ConfigRoleAuthority` preserves the static `tenancy.membership.roles` allow-list. A host that owns
+per-tenant role definitions may configure an implementation class:
+
+```php
+'membership' => [
+    'role_authority' => App\Tenancy\WorkspaceRoleAuthority::class,
+],
+```
+
+Register that concrete class in the host container. The engine factory resolves it while retaining
+the config allow-list as a safe default. Membership assignment and role changes validate inside a
+transaction while holding canonical per-tenant role advisory locks; concurrent conflicts surface as
+`MembershipRoleConflictException` rather than proceeding with an unprotected role.
+
+**Framework requirement:** `glueful/framework ^1.67.0`. The extension relies on the chainable
+`Connection::addTableHook()` / `QueryExecutor::addQueryInterceptor()` seams (so tenancy hooks compose
+with host interceptors instead of replacing them) and the `Connection::class` container binding. Earlier
+framework versions are not supported.
 
 ## The data model
 
@@ -417,7 +486,6 @@ force-stamp, and the raw-query guard.
 
 | Key | Default | Env | Purpose |
 | --- | --- | --- | --- |
-| `enabled` | `true` | | master switch; `false` skips table-hook and query-guard enforcement registration |
 | `resolvers` | `['subdomain','path','header','query','jwt','active_session']` | | resolver precedence (first non-null wins) |
 | `subdomain.base_domain` | `null` | `TENANCY_BASE_DOMAIN` | base host for subdomain resolution |
 | `path.segment` | `'t'` | | leading path segment |
@@ -432,3 +500,8 @@ force-stamp, and the raw-query guard.
 | `enforcement.guard.prod` | `'metric'` | | prod guard action — `metric` \| `log` \| `off` |
 | `bypass_permissions` | `['tenancy.access_any','tenancy.manage']` | | permissions that satisfy `forAnyTenant` |
 | `membership.roles` | `['owner','admin','member','viewer']` | | allowed membership roles |
+| `membership.role_authority` | `ConfigRoleAuthority::class` | | host implementation of tenant-aware membership-role assignment policy |
+
+Enforcement activation is intentionally not a configuration key. It is controlled by whether
+`Glueful\Extensions\Tenancy\TenancyServiceProvider` is present in the application's enabled-extension
+list. `TenancyControlPlaneProvider` remains statically registered regardless of that state.

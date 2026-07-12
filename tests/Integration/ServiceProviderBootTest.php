@@ -14,13 +14,15 @@ final class ServiceProviderBootTest extends TenancyTestCase
 {
     protected function tearDown(): void
     {
+        \Glueful\Database\Connection::clearInsertHooks();
         \Glueful\Database\Connection::clearTableHooks();
+        \Glueful\Database\Execution\QueryExecutor::clearQueryInterceptors();
         CurrentContext::clear();
         TenantTableRegistry::clear();
         parent::tearDown();
     }
 
-    public function test_enforcement_registration_failures_rethrow_outside_production(): void
+    public function testEnforcementRegistrationFailuresRethrowOutsideProduction(): void
     {
         $ctx = $this->appContext();
         $ctx->mergeConfigDefaults('tenancy', [
@@ -35,7 +37,7 @@ final class ServiceProviderBootTest extends TenancyTestCase
         $provider->boot($ctx);
     }
 
-    public function test_disabled_tenancy_skips_enforcement_registration(): void
+    public function testProviderPresenceRegistersEnforcementRegardlessOfLegacyConfigFlag(): void
     {
         $ctx = $this->appContext();
         $ctx->mergeConfigDefaults('tenancy', [
@@ -68,6 +70,7 @@ final class ServiceProviderBootTest extends TenancyTestCase
 
         $rows = $this->connection()->table('invoices')->get();
 
-        self::assertCount(2, $rows);
+        self::assertCount(1, $rows);
+        self::assertSame($tenantA->uuid, $rows[0]['tenant_uuid']);
     }
 }

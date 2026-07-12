@@ -7,29 +7,17 @@ namespace Glueful\Extensions\Tenancy;
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Database\Connection;
 use Glueful\Database\Execution\QueryExecutor;
-use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Contracts\Tenancy\CurrentTenantResolver;
-use Glueful\Extensions\Contracts\Tenancy\TenantContextRunner;
 use Glueful\Extensions\Contracts\Tenancy\TenantEnforcementProbe;
-use Glueful\Extensions\Contracts\Tenancy\TenantProvisioner;
-use Glueful\Extensions\Contracts\Tenancy\TenantProvisioningRunner;
-use Glueful\Extensions\Contracts\Tenancy\TenantAdministration;
-use Glueful\Extensions\Contracts\Tenancy\TenantDomainAdministration;
 use Glueful\Extensions\Contracts\Tenancy\TenantResolutionProbe;
 use Glueful\Extensions\Contracts\Tenancy\TenantRequestMiddleware as TenantRequestMiddlewareContract;
 use Glueful\Extensions\Contracts\Tenancy\TenantTableRegistry as TenantTableRegistryContract;
 use Glueful\Extensions\Tenancy\Authorization\TenantAccess;
 use Glueful\Extensions\Tenancy\Bridge\ContractTableRegistry;
 use Glueful\Extensions\Tenancy\Bridge\ContractEnforcementProbe;
-use Glueful\Extensions\Tenancy\Bridge\ContractTenantProvisioner;
-use Glueful\Extensions\Tenancy\Bridge\ContractTenantProvisioningRunner;
-use Glueful\Extensions\Tenancy\Bridge\ContractTenantAdministration;
-use Glueful\Extensions\Tenancy\Bridge\ContractTenantDomainAdministration;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolutionProbe;
-use Glueful\Extensions\Tenancy\Bridge\ContractTenantRunner;
 use Glueful\Extensions\Tenancy\Bridge\ContractTenantResolver;
 use Glueful\Extensions\Tenancy\Context\CurrentContext;
-use Glueful\Extensions\Tenancy\Cooldown\ReleasedHostRepository;
 use Glueful\Extensions\Tenancy\Http\TenantMiddleware;
 use Glueful\Extensions\Tenancy\Models\Tenant;
 use Glueful\Extensions\Tenancy\Query\TenantInsertStamper;
@@ -78,36 +66,6 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
                 'class' => ContractEnforcementProbe::class,
                 'shared' => true,
             ],
-            TenantContextRunner::class => [
-                'class' => ContractTenantRunner::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
-            TenantProvisioner::class => [
-                'class' => ContractTenantProvisioner::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
-            TenantProvisioningRunner::class => [
-                'class' => ContractTenantProvisioningRunner::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
-            TenantAdministration::class => [
-                'class' => ContractTenantAdministration::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
-            TenantDomainAdministration::class => [
-                'class' => ContractTenantDomainAdministration::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
-            ReleasedHostRepository::class => [
-                'class' => ReleasedHostRepository::class,
-                'shared' => true,
-                'autowire' => true,
-            ],
             TenantResolutionProbe::class => [
                 'class' => ContractTenantResolutionProbe::class,
                 'shared' => true,
@@ -142,11 +100,6 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
         ];
     }
 
-    public function register(ApplicationContext $context): void
-    {
-        $this->mergeConfig('tenancy', require __DIR__ . '/../config/tenancy.php');
-    }
-
     public static function makeTenantRequestMiddleware(
         \Psr\Container\ContainerInterface $container
     ): TenantRequestMiddlewareContract {
@@ -155,52 +108,17 @@ final class TenancyServiceProvider extends \Glueful\Extensions\ServiceProvider
 
     public function boot(ApplicationContext $context): void
     {
-        // Run AFTER the identity store (IDENTITY = -100) but BEFORE app/feature
-        // migrations (DEFAULT = 0), so `tenants` exists before any app tenant-owned
-        // table that FKs to `tenants.uuid`. NOT FOUNDATION (-200) — that tier is
-        // reserved for framework core; and NOT DEPENDENT (100) — that runs after the
-        // app, which would create `tenants` too late. A raw int between the tiers is
-        // the framework-sanctioned way to order an extension's infrastructure here.
-        // Directory may not exist yet — loadMigrationsFrom no-ops if absent.
-        $this->loadMigrationsFrom(
-            __DIR__ . '/../migrations',
-            MigrationPriority::DEFAULT - 50,
-            'glueful/tenancy'
-        );
-
         try {
-            if (\config($context, 'tenancy.enabled', true) === true) {
-                // The config `tenancy.tables` list is the AUTHORITATIVE registry of tenant-owned
-                // tables. Populate it at boot — before any request runs a query — so raw-query
-                // auto-injection protects those tables regardless of model boot order. The
-                // BelongsToTenant trait still registers as a backstop.
-                TenantTableRegistry::loadFromConfig($context);
-
-                // Install the primary-table auto-injection hook on the query builder.
-                self::registerTableHook();
-
-                // Install the pre-execution safety net: the TenantQueryGuard catches raw/unscoped
-                // access to tenant-owned tables that the auto-injection hook never saw. Registered
-                // via the CHAINABLE interceptor seam so host/other interceptors still run.
-                QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
-
-                // Write-side stamper: fill tenant_uuid on builder inserts into owned tables — the
-                // symmetric counterpart to the read table-hook above. Requires the framework's
-                // Connection::addInsertHook seam (pinned at release).
-                Connection::addInsertHook(TenantInsertStamper::hook());
-            }
+            TenantTableRegistry::loadFromConfig($context);
+            self::registerTableHook();
+            QueryExecutor::addQueryInterceptor(new TenantQueryGuard());
+            Connection::addInsertHook(TenantInsertStamper::hook());
         } catch (\Throwable $e) {
             error_log('[Tenancy] Failed to register tenant enforcement: ' . $e->getMessage());
             if ($context->getEnvironment() !== 'production') {
                 throw $e;
             }
         }
-
-        // Auto-discover the tenant:* console commands (each carries #[AsCommand]).
-        $this->discoverCommands(
-            'Glueful\\Extensions\\Tenancy\\Console',
-            __DIR__ . '/Console'
-        );
     }
 
     /**
