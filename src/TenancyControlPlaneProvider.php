@@ -6,7 +6,6 @@ namespace Glueful\Extensions\Tenancy;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Psr\Container\ContainerInterface;
-use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Contracts\Tenancy\TenantAdministration;
 use Glueful\Extensions\Contracts\Tenancy\TenantContextRunner;
 use Glueful\Extensions\Contracts\Tenancy\TenantDomainAdministration;
@@ -97,11 +96,11 @@ final class TenancyControlPlaneProvider extends ServiceProvider
 
     public function boot(ApplicationContext $context): void
     {
-        $this->loadMigrationsFrom(
-            __DIR__ . '/../migrations',
-            MigrationPriority::DEFAULT - 50,
-            'glueful/tenancy'
-        );
+        // Migrations are declared by the composer manifest (extra.glueful.migrations):
+        // core mode at the 'platform' priority (-50, byte-identical to the old DEFAULT - 50) —
+        // control-plane tables provision with every install. Generic extensions:enable refuses
+        // tenancy (protected); the descriptor exists for provision/readiness/adoption, not for
+        // the generic enable flow. Enforcement stays in the host's protected state machine.
 
         $this->discoverCommands(
             'Glueful\\Extensions\\Tenancy\\Console',
