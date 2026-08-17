@@ -55,7 +55,7 @@
             "name": "Tenancy",
             "displayName": "Tenancy",
             "description": "Shared-database, row-level multi-tenancy for Glueful.",
-            "version": "2.0.0",
+            "version": "2.1.0",
             "categories": [
                 "multi-tenancy",
                 "security"
@@ -80,11 +80,9 @@
     "config": {
         "sort-packages": true
     },
-    "repositories": [
-        {
-            "name": "extension-contracts",
-            "type": "path",
-            "url": "../contracts"
-        }
-    ]
+    "repositories": [{
+        "name": "extension-contracts",
+        "type": "path",
+        "url": "../contracts"
+    }]
 }

@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-17
+
 ### Added
 - Declares the Glueful schema manifest: the control-plane migration descriptor is core mode at
   the platform priority (-50, identical ordering to the old DEFAULT - 50), with a structural
