@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-17
+
+### Added
+- Declares the Glueful schema manifest: the control-plane migration descriptor is core mode at
+  the platform priority (-50, identical ordering to the old DEFAULT - 50), with a structural
+  verifier; requires framework >=1.79.0. Generic extensions:enable still refuses tenancy — the
+  descriptor serves provision/readiness/adoption, not the generic enable flow.
+
+
 ## [2.0.0] - 2026-07-12
 
 **Theme: the provider split** — tenancy's identity/administration control-plane becomes always-on
